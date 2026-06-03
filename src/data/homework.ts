@@ -188,7 +188,13 @@ export async function submitHomework(
   const totalCount = questions.length;
   for (const answer of answers) {
     const question = questions.find((q) => q.id === answer.questionId);
-    if (!question || question.type === "voiceAnswer") continue;
+    if (!question) continue;
+    if (question.type === "voiceAnswer") {
+      // Voice answers are AI/teacher-reviewed, not auto-graded. Count a question
+      // that was actually recorded as complete/correct (skipped ones aren't).
+      if (answer.audioUrl || answer.transcript?.trim()) correctCount++;
+      continue;
+    }
     if (isAnswerCorrect(question, answer.answer)) correctCount++;
   }
   const score = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
