@@ -50,6 +50,9 @@ export const config = {
   /** Minutes before a lesson to send reminders (e.g. [60, 10]). */
   reminderOffsets: parseOffsets(process.env.REMINDER_OFFSETS),
 
+  /** Also send a 09:00 (lesson-local) "today" reminder when the lesson is at/after 09:00. */
+  morningReminder: (process.env.MORNING_REMINDER || "true").toLowerCase() !== "false",
+
   /** Shared Firebase project with the website (tracking-budget-app). */
   firebase: {
     apiKey: "AIzaSyApqg1eUjbt0ZBzn3JNEPtfLz6gI4314xQ",

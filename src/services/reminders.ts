@@ -1,6 +1,6 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../bot/context.js";
-import { config } from "../config.js";
+import { config, type Language } from "../config.js";
 import { t } from "../i18n.js";
 import { esc } from "../util/format.js";
 import { fetchAllLessons } from "../data/schedule.js";
@@ -92,35 +92,63 @@ async function tick(bot: Bot<BotContext>): Promise<void> {
       if (!conns) continue;
       const instant = nextLessonInstant(lesson, now);
       if (!instant) continue;
-      const diffMin = Math.round((instant.getTime() - now.getTime()) / 60_000);
-      const offset = config.reminderOffsets.find((o) => o === diffMin);
-      if (offset === undefined) continue;
 
       const dateStr = instant.toISOString().slice(0, 10);
-      const key = `${lesson.id}:${dateStr}:${offset}`;
+      const lessonLocal = formatLocal(instant, lesson.timezone);
+
+      // Which reminders are due for this lesson occurrence, this minute?
+      const due: { key: string; render: (lang: Language, subject: string) => string }[] = [];
+
+      const diffMin = Math.round((instant.getTime() - now.getTime()) / 60_000);
+      const offset = config.reminderOffsets.find((o) => o === diffMin);
+      if (offset !== undefined) {
+        due.push({
+          key: `${lesson.id}:${dateStr}:${offset}`,
+          render: (lang, subject) =>
+            t(lang, "reminder_message", { subject, minutes: offset, time: lessonLocal }),
+        });
+      }
+
+      // A 09:00 (lesson-local) "today" reminder — only when the lesson is at or
+      // after 09:00, and not in the same minute as an offset reminder.
+      if (
+        offset === undefined &&
+        config.morningReminder &&
+        lesson.timezone &&
+        lessonLocal >= "09:00"
+      ) {
+        const { year, month, day } = localDateInTz(instant, lesson.timezone);
+        const morning = zonedWallClockToUTC(year, month, day, 9, 0, lesson.timezone);
+        if (morning && Math.round((morning.getTime() - now.getTime()) / 60_000) === 0) {
+          due.push({
+            key: `${lesson.id}:${dateStr}:morning`,
+            render: (lang, subject) => t(lang, "reminder_morning", { subject, time: lessonLocal }),
+          });
+        }
+      }
+
+      if (due.length === 0) continue;
 
       for (const conn of conns) {
         if (!conn.remindersEnabled) continue;
-        const alreadySent =
-          conn.sentReminders.includes(key) || pending.get(conn.telegramUserId)?.keys.includes(key);
-        if (alreadySent) continue;
-
         const subject = lesson.subject
           ? esc(lesson.subject)
           : t(conn.language, "reminder_default_subject");
-        const text = t(conn.language, "reminder_message", {
-          subject,
-          minutes: offset,
-          time: formatLocal(instant, lesson.timezone),
-        });
-
-        try {
-          await bot.api.sendMessage(conn.chatId, text, { parse_mode: "HTML" });
-          const entry = pending.get(conn.telegramUserId) ?? { conn, keys: [] };
-          entry.keys.push(key);
-          pending.set(conn.telegramUserId, entry);
-        } catch (err) {
-          console.error("reminder send failed:", err);
+        for (const d of due) {
+          const alreadySent =
+            conn.sentReminders.includes(d.key) ||
+            pending.get(conn.telegramUserId)?.keys.includes(d.key);
+          if (alreadySent) continue;
+          try {
+            await bot.api.sendMessage(conn.chatId, d.render(conn.language, subject), {
+              parse_mode: "HTML",
+            });
+            const entry = pending.get(conn.telegramUserId) ?? { conn, keys: [] };
+            entry.keys.push(d.key);
+            pending.set(conn.telegramUserId, entry);
+          } catch (err) {
+            console.error("reminder send failed:", err);
+          }
         }
       }
     }
