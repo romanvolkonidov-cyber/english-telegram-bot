@@ -21,6 +21,7 @@ export async function fetchAllLessons(): Promise<Lesson[]> {
         studentId: data.studentId ?? "",
         dayIndex: typeof data.dayIndex === "number" ? data.dayIndex : -1,
         time: data.time ?? "",
+        timeIsLocal: data.timeIsLocal === true,
         timezone: data.timezone,
         subject: data.subject,
         teacher: data.teacher,

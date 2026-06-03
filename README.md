@@ -112,29 +112,21 @@ It only reminds students who have logged into the bot, reads lesson times from
 the website's `weeklySchedule`, and is **fully independent of the legacy Cloud
 Functions** — if those still send reminders, disable them to avoid duplicates.
 
-**Heads-up about how the website stores lesson times (a pre-existing bug).**
-When you save a lesson, `rv-website/src/components/StudentWeeklySchedule.js`
-(lines ~215–227) converts the entered time to a **fixed UTC** string using the
-DST offset *in effect on the day you saved it*, and stores that (`time` = UTC
-`"HH:mm"`, plus a separate `timezone`). That is why:
+**The old DST bug — now fixed.** Previously the website saved a lesson's time as
+a **fixed UTC** string using the DST offset in effect on the save date, so
+DST-observing zones (Europe/UK/US) drifted by an hour after each clock change,
+while Moscow (no DST) stayed correct.
 
-- **Moscow never drifts** — `Europe/Moscow` has no daylight saving, so its
-  offset (+3) is always correct.
-- **Europe / UK / US drift by an hour** — after a clock change, the frozen UTC
-  no longer matches the intended local time, so **both** the time shown in the
-  app **and** any reminders shift by an hour.
+It now stores the **wall-clock time exactly as entered** (e.g. `"16:00"`) plus
+the IANA `timezone`, marked `timeIsLocal: true`, and converts to UTC only when
+needed using the **actual lesson date** — so spring/autumn changes are handled
+correctly everywhere. The bot understands both formats: `timeIsLocal` rows are
+resolved in their timezone (DST-correct, via `src/util/tz.ts`), and legacy
+UTC-stored rows keep working unchanged.
 
-**Recommended fix (small, on the website side):** stop pre-converting to UTC on
-save. Store the wall-clock time exactly as entered (e.g. `"16:00"`) together
-with the IANA `timezone`, and convert to UTC only *when you need it* (display or
-reminder), using the **actual lesson date** so the correct DST offset is
-applied — i.e. `moment.tz('YYYY-MM-DD HH:mm', timezone)` on read instead of
-`moment...utc()` on save. A one-time migration would re-interpret existing rows,
-and storing a per-student default timezone would stop new students falling back
-to Moscow.
-
-Until that lands, the bot's reminders fire on the **same UTC basis the website
-already uses**, so they stay consistent with what the app shows.
+**Existing lessons** created before the fix stay in the legacy format until
+re-saved. Moscow lessons are unaffected (no DST); just re-open and save any
+**non-Moscow** lesson once to convert it to the new, drift-free format.
 
 ---
 

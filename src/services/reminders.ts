@@ -9,31 +9,41 @@ import {
   recordSentReminders,
   type StudentConnection,
 } from "../data/connections.js";
-
-/** Convert a JS day (0=Sun) to the website's dayIndex (0=Mon … 6=Sun). */
-function customDayIndex(d: Date): number {
-  return (d.getUTCDay() + 6) % 7;
-}
+import type { Lesson } from "../types.js";
+import { dayIndexOfDate, localDateInTz, zonedWallClockToUTC } from "../util/tz.js";
 
 /**
- * The next UTC instant for a lesson on `dayIndex` at `hhmm` (interpreted as
- * UTC, matching how the website stores `time`). Returns the soonest such
- * instant at or after `now`.
+ * The soonest UTC instant (at or after `now`) when a weekly lesson next occurs.
+ *
+ *  - New format (`timeIsLocal`): `time` is wall-clock in `timezone`; we resolve
+ *    the recurrence in that zone so DST changes are applied correctly.
+ *  - Legacy format: `time` is UTC (the website's old storage), so we match on
+ *    the UTC weekday/time directly.
  */
-export function nextOccurrenceUTC(
-  dayIndex: number,
-  hhmm: string,
-  now = new Date(),
-): Date | null {
-  const [hStr, mStr] = hhmm.split(":");
+export function nextLessonInstant(lesson: Lesson, now = new Date()): Date | null {
+  const [hStr, mStr] = lesson.time.split(":");
   const h = Number(hStr);
-  const m = Number(mStr);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  const mi = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(mi)) return null;
+
+  if (lesson.timeIsLocal && lesson.timezone) {
+    for (let add = 0; add <= 8; add++) {
+      const base = new Date(now.getTime() + add * 86_400_000);
+      const { year, month, day } = localDateInTz(base, lesson.timezone);
+      if (dayIndexOfDate(year, month, day) !== lesson.dayIndex) continue;
+      const instant = zonedWallClockToUTC(year, month, day, h, mi, lesson.timezone);
+      if (instant && instant.getTime() >= now.getTime() - 30_000) return instant;
+    }
+    return null;
+  }
+
   for (let add = 0; add <= 7; add++) {
     const d = new Date(now);
     d.setUTCDate(d.getUTCDate() + add);
-    d.setUTCHours(h, m, 0, 0);
-    if (customDayIndex(d) === dayIndex && d.getTime() >= now.getTime() - 30_000) return d;
+    d.setUTCHours(h, mi, 0, 0);
+    if ((d.getUTCDay() + 6) % 7 === lesson.dayIndex && d.getTime() >= now.getTime() - 30_000) {
+      return d;
+    }
   }
   return null;
 }
@@ -80,7 +90,7 @@ async function tick(bot: Bot<BotContext>): Promise<void> {
     for (const lesson of lessons) {
       const conns = byStudent.get(lesson.studentId);
       if (!conns) continue;
-      const instant = nextOccurrenceUTC(lesson.dayIndex, lesson.time, now);
+      const instant = nextLessonInstant(lesson, now);
       if (!instant) continue;
       const diffMin = Math.round((instant.getTime() - now.getTime()) / 60_000);
       const offset = config.reminderOffsets.find((o) => o === diffMin);

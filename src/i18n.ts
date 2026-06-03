@@ -29,6 +29,7 @@ const en = {
 
   // ── student main menu ──
   main_menu_title: "🏠 <b>Main menu</b> — what would you like to do?",
+  menu_greeting: "👋 Hi, <b>{name}</b>!",
   menu_pending: "📚 Homework to do: <b>{n}</b>",
   menu_caught_up: "🎉 You're all caught up — no homework right now!",
   menu_homework: "📚 My homework",
@@ -153,6 +154,7 @@ const ru: Record<TranslationKey, string> = {
   language_set: "✅ Язык переключён на русский.",
 
   main_menu_title: "🏠 <b>Главное меню</b> — что хотите сделать?",
+  menu_greeting: "👋 Привет, <b>{name}</b>!",
   menu_pending: "📚 Заданий к выполнению: <b>{n}</b>",
   menu_caught_up: "🎉 Всё выполнено — заданий пока нет!",
   menu_homework: "📚 Домашние задания",

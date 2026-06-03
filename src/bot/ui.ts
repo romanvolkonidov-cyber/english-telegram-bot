@@ -4,6 +4,7 @@ import type { BotContext } from "./context.js";
 import { t } from "../i18n.js";
 import { mainMenuKeyboard, teacherMenuKeyboard } from "./keyboards.js";
 import { countPendingHomework } from "../data/homework.js";
+import { esc } from "../util/format.js";
 
 /** Show a "typing…" indicator while we fetch — makes waits feel responsive. */
 export async function typing(ctx: BotContext): Promise<void> {
@@ -43,16 +44,18 @@ export async function view(
 
 export async function showMainMenu(ctx: BotContext): Promise<void> {
   const lang = ctx.session.lang;
-  let head = "";
+  const lines: string[] = [];
+  if (ctx.session.name) lines.push(t(lang, "menu_greeting", { name: esc(ctx.session.name) }));
   if (ctx.session.studentId) {
     try {
       const n = await countPendingHomework(ctx.session.studentId);
-      head = (n > 0 ? t(lang, "menu_pending", { n }) : t(lang, "menu_caught_up")) + "\n\n";
+      lines.push(n > 0 ? t(lang, "menu_pending", { n }) : t(lang, "menu_caught_up"));
     } catch {
       /* show the menu without the count if the lookup fails */
     }
   }
-  await view(ctx, head + t(lang, "main_menu_title"), mainMenuKeyboard(lang));
+  lines.push(t(lang, "main_menu_title"));
+  await view(ctx, lines.join("\n\n"), mainMenuKeyboard(lang));
 }
 
 export async function showTeacherMenu(ctx: BotContext): Promise<void> {

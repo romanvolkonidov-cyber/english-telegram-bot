@@ -18,7 +18,7 @@ export async function verifyStudentLogin(
   const snapshot = await getDocs(collection(db, "students"));
   const match = snapshot.docs.find((d) => {
     const data = d.data() as Student;
-    return data.username === username && data.password === password;
+    return data.username === username && data.password === password && data.deleted !== true;
   });
   if (!match) return null;
   return { id: match.id, ...(match.data() as Omit<Student, "id">) };
@@ -33,10 +33,9 @@ export function isAdminLogin(username: string, password: string): boolean {
 export async function fetchStudents(): Promise<Student[]> {
   await ensureAuth();
   const snapshot = await getDocs(collection(db, "students"));
-  const students = snapshot.docs.map((d) => ({
-    id: d.id,
-    ...(d.data() as Omit<Student, "id">),
-  }));
+  const students = snapshot.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Student, "id">) }))
+    .filter((s) => s.deleted !== true);
   return students.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 

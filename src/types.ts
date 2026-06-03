@@ -23,6 +23,8 @@ export interface Student {
   price?: number;
   currency?: string;
   tag?: string;
+  /** Soft-delete flag set by the website; such students are hidden everywhere. */
+  deleted?: boolean;
 }
 
 export interface Topic {
@@ -135,8 +137,12 @@ export interface Lesson {
   studentId: string;
   /** 0 = Monday … 6 = Sunday. */
   dayIndex: number;
-  /** "HH:mm" — stored by the website in UTC (see README "Lesson times & DST"). */
+  /**
+   * "HH:mm". If `timeIsLocal` is true this is local wall-clock in `timezone`
+   * (the fixed, DST-correct format); otherwise it's legacy UTC.
+   */
   time: string;
+  timeIsLocal?: boolean;
   timezone?: string;
   subject?: string;
   teacher?: string;

@@ -57,8 +57,18 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
+// A command (e.g. /menu, /start) always escapes an in-progress quiz.
+bot.use(async (ctx, next) => {
+  const text = ctx.message?.text;
+  if (text && text.startsWith("/") && ctx.session.flow?.kind === "quiz") {
+    ctx.session.flow = undefined;
+  }
+  await next();
+});
+
 /** Send the user to wherever "home" is for them. */
 async function goHome(ctx: BotContext): Promise<void> {
+  ctx.session.flow = undefined; // leaving any in-progress quiz/login
   if (ctx.session.role === "teacher") await showTeacherMenu(ctx);
   else if (ctx.session.role === "student") await showMainMenu(ctx);
   else await startCommand(ctx);
