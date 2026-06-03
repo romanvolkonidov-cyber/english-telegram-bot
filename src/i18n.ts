@@ -29,6 +29,8 @@ const en = {
 
   // ── student main menu ──
   main_menu_title: "🏠 <b>Main menu</b> — what would you like to do?",
+  menu_pending: "📚 Homework to do: <b>{n}</b>",
+  menu_caught_up: "🎉 You're all caught up — no homework right now!",
   menu_homework: "📚 My homework",
   menu_results: "📊 My results",
   menu_progress: "🎮 My progress",
@@ -85,6 +87,7 @@ const en = {
   report_feedback: "   • 🗣 {f}",
   report_no_answer: "— (no answer)",
   report_voice_note: "🎤 Voice answer for Q{i}:",
+  review_end: "— end of review —",
 
   // ── progress ──
   progress_title: "🎮 <b>Your progress</b>",
@@ -143,6 +146,8 @@ const ru: Record<TranslationKey, string> = {
   language_set: "✅ Язык переключён на русский.",
 
   main_menu_title: "🏠 <b>Главное меню</b> — что хотите сделать?",
+  menu_pending: "📚 Заданий к выполнению: <b>{n}</b>",
+  menu_caught_up: "🎉 Всё выполнено — заданий пока нет!",
   menu_homework: "📚 Домашние задания",
   menu_results: "📊 Мои результаты",
   menu_progress: "🎮 Мой прогресс",
@@ -194,6 +199,7 @@ const ru: Record<TranslationKey, string> = {
   report_feedback: "   • 🗣 {f}",
   report_no_answer: "— (нет ответа)",
   report_voice_note: "🎤 Голосовой ответ на В{i}:",
+  review_end: "— конец обзора —",
 
   progress_title: "🎮 <b>Ваш прогресс</b>",
   progress_level: "{emoji} <b>Уровень {level}</b> — {title}",

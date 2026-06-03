@@ -3,7 +3,7 @@ import type { Api } from "grammy";
 import type { BotContext } from "../context.js";
 import { t } from "../../i18n.js";
 import { esc, toMillis } from "../../util/format.js";
-import { view } from "../ui.js";
+import { typing, view } from "../ui.js";
 import { resultsListKeyboard, studentsListKeyboard } from "../keyboards.js";
 import { fetchStudentById, fetchStudents } from "../../data/students.js";
 import {
@@ -26,6 +26,7 @@ export function requireTeacher(ctx: BotContext): boolean {
 export async function showStudentsList(ctx: BotContext): Promise<void> {
   if (!requireTeacher(ctx)) return;
   const lang = ctx.session.lang;
+  await typing(ctx);
 
   const [students, reports] = await Promise.all([fetchStudents(), fetchAllReports()]);
   const unseen = new Map<string, number>();
@@ -49,6 +50,7 @@ export async function showStudentsList(ctx: BotContext): Promise<void> {
 export async function showStudentReports(ctx: BotContext, studentId: string): Promise<void> {
   if (!requireTeacher(ctx)) return;
   const lang = ctx.session.lang;
+  await typing(ctx);
 
   const [student, reports, assignments] = await Promise.all([
     fetchStudentById(studentId),

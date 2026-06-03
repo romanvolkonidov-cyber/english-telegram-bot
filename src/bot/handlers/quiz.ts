@@ -232,6 +232,11 @@ export async function quizOnVoice(ctx: BotContext): Promise<void> {
   if (!studentId) return;
 
   await ctx.reply(t(lang, "quiz_voice_processing"), { parse_mode: "HTML" });
+  try {
+    await ctx.replyWithChatAction("typing");
+  } catch {
+    /* non-fatal */
+  }
 
   let bytes: Uint8Array | null = null;
   try {

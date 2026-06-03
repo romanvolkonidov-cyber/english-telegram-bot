@@ -2,7 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { BotContext } from "../context.js";
 import { t } from "../../i18n.js";
 import { toMillis } from "../../util/format.js";
-import { view, showMainMenu } from "../ui.js";
+import { typing, view, showMainMenu } from "../ui.js";
 import {
   backToMenuKeyboard,
   homeworkListKeyboard,
@@ -35,6 +35,7 @@ export async function showHomeworkList(ctx: BotContext): Promise<void> {
   const studentId = requireStudent(ctx);
   if (!studentId) return;
   const lang = ctx.session.lang;
+  await typing(ctx);
 
   const [assignments, reports] = await Promise.all([
     fetchStudentHomework(studentId),
@@ -59,6 +60,7 @@ export async function showResults(ctx: BotContext): Promise<void> {
   const studentId = requireStudent(ctx);
   if (!studentId) return;
   const lang = ctx.session.lang;
+  await typing(ctx);
 
   const [reports, assignments] = await Promise.all([
     fetchHomeworkReports(studentId),
@@ -90,6 +92,7 @@ export async function sendReport(
   opts: { isTeacher: boolean; backButton: { text: string; data: string } },
 ): Promise<void> {
   const lang = ctx.session.lang;
+  await typing(ctx);
   const report = await fetchReportById(reportId);
   if (!report) {
     await ctx.reply(t(lang, "error_generic"), { parse_mode: "HTML" });
@@ -118,7 +121,7 @@ export async function sendReport(
     }
   }
   const kb = new InlineKeyboard().text(opts.backButton.text, opts.backButton.data);
-  await ctx.reply("—", { reply_markup: kb });
+  await ctx.reply(t(lang, "review_end"), { reply_markup: kb });
 }
 
 export async function showStudentReport(ctx: BotContext, reportId: string): Promise<void> {
@@ -133,6 +136,7 @@ export async function showProgress(ctx: BotContext): Promise<void> {
   const studentId = requireStudent(ctx);
   if (!studentId) return;
   const lang = ctx.session.lang;
+  await typing(ctx);
 
   const profile = await getGameProfile(studentId);
   const level = getLevelForXP(profile.xp);

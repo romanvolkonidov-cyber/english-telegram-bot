@@ -129,6 +129,15 @@ export async function fetchQuestionsForHomework(
   return all;
 }
 
+/** How many homeworks the student still has to do (best-effort, for the menu). */
+export async function countPendingHomework(studentId: string): Promise<number> {
+  const [assignments, reports] = await Promise.all([
+    fetchStudentHomework(studentId),
+    fetchHomeworkReports(studentId),
+  ]);
+  return pendingAssignments(assignments, reports).length;
+}
+
 /** Assignments the student still has to do (no matching report and not marked completed). */
 export function pendingAssignments(
   assignments: HomeworkAssignment[],
