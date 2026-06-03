@@ -15,6 +15,7 @@ import {
   toggleReminders,
 } from "./bot/handlers/student.js";
 import { startReminderScheduler } from "./services/reminders.js";
+import { startHomeworkWatcher } from "./services/homeworkWatcher.js";
 import {
   quizChoice,
   quizOnText,
@@ -173,6 +174,14 @@ async function main(): Promise<void> {
     console.error("setMyCommands failed (continuing):", err);
   }
 
+  // Force the Menu button to show the command list (clears any old web-app menu
+  // button left over from a previous bot setup).
+  try {
+    await bot.api.setChatMenuButton({ menu_button: { type: "commands" } });
+  } catch (err) {
+    console.error("setChatMenuButton failed (continuing):", err);
+  }
+
   process.once("SIGINT", () => bot.stop());
   process.once("SIGTERM", () => bot.stop());
 
@@ -180,6 +189,7 @@ async function main(): Promise<void> {
     onStart: (info) => {
       console.log(`✅ @${info.username} is running (long polling).`);
       startReminderScheduler(bot);
+      startHomeworkWatcher(bot);
     },
   });
 }

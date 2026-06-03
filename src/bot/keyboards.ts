@@ -33,8 +33,9 @@ export function homeworkListKeyboard(
   const kb = new InlineKeyboard();
   for (const { assignment, count } of items) {
     const label = t(lang, "hw_item", {
-      topic: truncate(assignmentTitle(assignment), 30),
+      topic: truncate(assignmentTitle(assignment), 22),
       count,
+      date: formatDate(assignment.assignedAt, lang),
     });
     kb.text(label, `hw:open:${assignment.id}`).row();
   }

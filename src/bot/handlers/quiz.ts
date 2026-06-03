@@ -43,7 +43,10 @@ async function sendMedia(
   ctx: BotContext,
   media: { type: string; url: string }[],
 ): Promise<void> {
+  const seen = new Set<string>();
   for (const m of media) {
+    if (!m.url || seen.has(m.url)) continue;
+    seen.add(m.url);
     try {
       if (m.type === "audio") await ctx.replyWithAudio(m.url);
       else if (m.type === "video") await ctx.replyWithVideo(m.url);

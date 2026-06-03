@@ -1,7 +1,6 @@
 import type { BotContext } from "../context.js";
 import { t } from "../../i18n.js";
-import { esc } from "../../util/format.js";
-import { view, showMainMenu, showTeacherMenu } from "../ui.js";
+import { showMainMenu, showTeacherMenu } from "../ui.js";
 import { isAdminLogin, verifyStudentLogin } from "../../data/students.js";
 import {
   deleteConnection,
@@ -17,7 +16,6 @@ export async function startCommand(ctx: BotContext): Promise<void> {
     return;
   }
   if (ctx.session.role === "student" && ctx.session.studentId) {
-    await view(ctx, t(lang, "login_success", { name: esc(ctx.session.name ?? "") }));
     await showMainMenu(ctx);
     return;
   }
@@ -88,9 +86,6 @@ export async function loginOnText(ctx: BotContext, text: string): Promise<void> 
   ctx.session.studentId = student.id;
   ctx.session.name = student.name;
 
-  await ctx.reply(t(lang, "login_success", { name: esc(student.name) }), {
-    parse_mode: "HTML",
-  });
   await showMainMenu(ctx);
 }
 

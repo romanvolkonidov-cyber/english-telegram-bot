@@ -31,15 +31,21 @@ export function correctAnswerText(question: Question): string {
   return String(question.correctAnswer ?? "");
 }
 
-/** Media URLs attached to a question, normalized to {type,url} pairs. */
+/** Media URLs attached to a question, de-duplicated (the same file is often
+ *  stored in both `mediaFiles[].url` and `mediaUrl`). */
 export function questionMedia(question: Question): { type: string; url: string }[] {
+  const seen = new Set<string>();
   const media: { type: string; url: string }[] = [];
-  if (question.mediaFiles?.length) {
-    for (const m of question.mediaFiles) if (m.url) media.push({ type: m.type, url: m.url });
-  }
-  if (question.mediaUrl) media.push({ type: question.mediaType || "image", url: question.mediaUrl });
-  if (question.imageUrl) media.push({ type: "image", url: question.imageUrl });
-  if (question.audioUrl) media.push({ type: "audio", url: question.audioUrl });
-  if (question.videoUrl) media.push({ type: "video", url: question.videoUrl });
+  const add = (type: string, url?: string) => {
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      media.push({ type, url });
+    }
+  };
+  if (question.mediaFiles?.length) for (const m of question.mediaFiles) add(m.type, m.url);
+  add(question.mediaType || "image", question.mediaUrl);
+  add("image", question.imageUrl);
+  add("audio", question.audioUrl);
+  add("video", question.videoUrl);
   return media;
 }

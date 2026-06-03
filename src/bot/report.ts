@@ -61,51 +61,77 @@ export async function renderReport(
     total: report.totalQuestions ?? questions.length,
   });
 
-  const answersById = new Map(
-    (report.submittedAnswers ?? []).map((a) => [a.questionId, a]),
-  );
+  const submittedAnswers = report.submittedAnswers ?? [];
+  const answersById = new Map(submittedAnswers.map((a) => [a.questionId, a]));
+  const questionIds = new Set(questions.map((q) => q.id));
+  const matchCount = submittedAnswers.filter((a) => questionIds.has(a.questionId)).length;
 
   const blocks: string[] = [];
   const voiceNotes: { caption: string; url: string }[] = [];
 
-  questions.forEach((question, idx) => {
-    const i = idx + 1;
-    const submitted = answersById.get(question.id);
-    const prompt = esc(truncate(questionPromptText(question, sentences), 300));
-    const isVoice = question.type === "voiceAnswer";
+  if (submittedAnswers.length > 0 && matchCount === 0) {
+    // The questions were changed/removed since this homework was completed, so
+    // they no longer match the saved answer IDs. Show the saved answers directly
+    // instead of a misleading list of "no answer".
+    blocks.push(t(lang, "report_questions_changed"));
+    submittedAnswers.forEach((a, idx) => {
+      const i = idx + 1;
+      const lines: string[] = [];
+      if (a.audioUrl || a.transcript) {
+        lines.push(`🎤 <b>${i}.</b>`);
+        if (a.transcript) lines.push(t(lang, "report_transcript", { t: esc(a.transcript) }));
+        if (a.aiFeedback) lines.push(t(lang, "report_feedback", { f: esc(a.aiFeedback) }));
+        if (a.audioUrl) voiceNotes.push({ caption: t(lang, "report_voice_note", { i }), url: a.audioUrl });
+      } else {
+        lines.push(`<b>${i}.</b>`);
+        lines.push(
+          t(lang, "report_your_answer", {
+            a: a.answer?.trim() ? esc(a.answer) : t(lang, "report_no_answer"),
+          }),
+        );
+      }
+      blocks.push(lines.join("\n"));
+    });
+  } else {
+    questions.forEach((question, idx) => {
+      const i = idx + 1;
+      const submitted = answersById.get(question.id);
+      const prompt = esc(truncate(questionPromptText(question, sentences), 300));
+      const isVoice = question.type === "voiceAnswer";
 
-    const lines: string[] = [];
-    if (isVoice) {
-      lines.push(t(lang, "report_q_voice", { i, q: prompt }));
-      if (submitted?.transcript) {
-        lines.push(t(lang, "report_transcript", { t: esc(submitted.transcript) }));
+      const lines: string[] = [];
+      if (isVoice) {
+        lines.push(t(lang, "report_q_voice", { i, q: prompt }));
+        if (submitted?.transcript) {
+          lines.push(t(lang, "report_transcript", { t: esc(submitted.transcript) }));
+        }
+        if (submitted?.aiFeedback) {
+          lines.push(t(lang, "report_feedback", { f: esc(submitted.aiFeedback) }));
+        }
+        if (submitted?.audioUrl) {
+          voiceNotes.push({
+            caption: t(lang, "report_voice_note", { i }),
+            url: submitted.audioUrl,
+          });
+        }
+      } else {
+        const answerText = submitted?.answer?.trim();
+        const correct = answerText ? isAnswerCorrect(question, answerText) : false;
+        lines.push(
+          t(lang, correct ? "report_q_correct" : "report_q_wrong", { i, q: prompt }),
+        );
+        lines.push(
+          t(lang, "report_your_answer", {
+            a: answerText ? esc(answerText) : t(lang, "report_no_answer"),
+          }),
+        );
+        if (!correct) {
+          lines.push(t(lang, "report_correct_answer", { a: esc(correctAnswerText(question)) }));
+        }
       }
-      if (submitted?.aiFeedback) {
-        lines.push(t(lang, "report_feedback", { f: esc(submitted.aiFeedback) }));
-      }
-      if (submitted?.audioUrl) {
-        voiceNotes.push({
-          caption: t(lang, "report_voice_note", { i }),
-          url: submitted.audioUrl,
-        });
-      }
-    } else {
-      const answerText = submitted?.answer?.trim();
-      const correct = answerText ? isAnswerCorrect(question, answerText) : false;
-      lines.push(
-        t(lang, correct ? "report_q_correct" : "report_q_wrong", { i, q: prompt }),
-      );
-      lines.push(
-        t(lang, "report_your_answer", {
-          a: answerText ? esc(answerText) : t(lang, "report_no_answer"),
-        }),
-      );
-      if (!correct) {
-        lines.push(t(lang, "report_correct_answer", { a: esc(correctAnswerText(question)) }));
-      }
-    }
-    blocks.push(lines.join("\n"));
-  });
+      blocks.push(lines.join("\n"));
+    });
+  }
 
   return { chunks: packChunks(header, blocks), voiceNotes };
 }

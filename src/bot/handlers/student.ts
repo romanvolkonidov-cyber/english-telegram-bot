@@ -42,7 +42,9 @@ export async function showHomeworkList(ctx: BotContext): Promise<void> {
     fetchStudentHomework(studentId),
     fetchHomeworkReports(studentId),
   ]);
-  const pending = pendingAssignments(assignments, reports);
+  const pending = pendingAssignments(assignments, reports).sort(
+    (a, b) => toMillis(b.assignedAt) - toMillis(a.assignedAt),
+  );
 
   if (pending.length === 0) {
     await view(ctx, t(lang, "hw_none"), backToMenuKeyboard(lang));

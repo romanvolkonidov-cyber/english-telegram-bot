@@ -42,7 +42,7 @@ const en = {
   hw_list_title: "📚 <b>Your homework</b>",
   hw_none:
     "🎉 You have no pending homework right now. Great job staying on top of it!",
-  hw_item: "{topic} · {count} Q",
+  hw_item: "{topic} · {count}Q · {date}",
   hw_questions: "{count} questions",
 
   // ── quiz ──
@@ -88,6 +88,8 @@ const en = {
   report_feedback: "   • 🗣 {f}",
   report_no_answer: "— (no answer)",
   report_voice_note: "🎤 Voice answer for Q{i}:",
+  report_questions_changed:
+    "⚠️ Questions were updated since this was completed — showing your saved answers.",
   review_end: "— end of review —",
 
   // ── progress ──
@@ -124,6 +126,7 @@ const en = {
   reminder_default_subject: "Your lesson",
   reminders_enabled: "🔔 Lesson reminders are now <b>on</b>.",
   reminders_disabled: "🔕 Lesson reminders are now <b>off</b>. Send /reminders to turn them back on.",
+  new_homework: "📚 <b>New homework!</b> {topic}\n\nOpen the menu to do it 👇",
 
   // ── generic ──
   btn_back: "⬅️ Back",
@@ -166,7 +169,7 @@ const ru: Record<TranslationKey, string> = {
 
   hw_list_title: "📚 <b>Ваши домашние задания</b>",
   hw_none: "🎉 Сейчас нет невыполненных заданий. Отличная работа!",
-  hw_item: "{topic} · {count} в.",
+  hw_item: "{topic} · {count}в. · {date}",
   hw_questions: "{count} вопрос(ов)",
 
   quiz_started: "📝 <b>{topic}</b>\nВопросов: {count}. Поехали!",
@@ -209,6 +212,8 @@ const ru: Record<TranslationKey, string> = {
   report_feedback: "   • 🗣 {f}",
   report_no_answer: "— (нет ответа)",
   report_voice_note: "🎤 Голосовой ответ на В{i}:",
+  report_questions_changed:
+    "⚠️ Вопросы изменились после выполнения — показаны сохранённые ответы.",
   review_end: "— конец обзора —",
 
   progress_title: "🎮 <b>Ваш прогресс</b>",
@@ -242,6 +247,7 @@ const ru: Record<TranslationKey, string> = {
   reminder_default_subject: "Ваш урок",
   reminders_enabled: "🔔 Напоминания об уроках <b>включены</b>.",
   reminders_disabled: "🔕 Напоминания об уроках <b>выключены</b>. Отправьте /reminders, чтобы включить снова.",
+  new_homework: "📚 <b>Новое задание!</b> {topic}\n\nОткройте меню, чтобы выполнить 👇",
 
   btn_back: "⬅️ Назад",
   btn_menu: "🏠 Меню",
