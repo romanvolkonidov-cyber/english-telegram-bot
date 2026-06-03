@@ -1,0 +1,25 @@
+{
+  "name": "english-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for RV private English tutoring — students do their homework and teachers review it, sharing the same Firebase backend as the rv2class website.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke-test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "firebase": "^11.3.1",
+    "grammy": "^1.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
