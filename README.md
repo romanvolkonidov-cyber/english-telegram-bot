@@ -107,10 +107,12 @@ docker run --env-file .env english-bot
 ## Lesson reminders & the DST caveat
 
 The bot DMs students before their lessons — offsets via `REMINDER_OFFSETS`
-(default `60,10` minutes), and each student can toggle them with `/reminders`.
-It only reminds students who have logged into the bot, reads lesson times from
-the website's `weeklySchedule`, and is **fully independent of the legacy Cloud
-Functions** — if those still send reminders, disable them to avoid duplicates.
+(default `60,10` minutes). It also sends a **09:00 (student-local) "you have a
+lesson today" reminder** when the lesson starts at/after 09:00 (`MORNING_REMINDER`,
+on by default). Each student can toggle all reminders with `/reminders`. Reminders
+are sent in the student's chosen language, only to students who have logged into
+the bot, and read lesson times from the website's `weeklySchedule` — **fully
+independent of the legacy Cloud Functions**.
 
 **The old DST bug — now fixed.** Previously the website saved a lesson's time as
 a **fixed UTC** string using the DST offset in effect on the save date, so

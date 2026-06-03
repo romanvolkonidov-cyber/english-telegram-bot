@@ -120,6 +120,7 @@ const en = {
   // ── reminders ──
   reminder_message:
     "⏰ <b>Lesson reminder</b>\n{subject} — starts in about <b>{minutes}</b> min (at <b>{time}</b>).",
+  reminder_morning: "🌅 <b>Good morning!</b> {subject} — today at <b>{time}</b>.",
   reminder_default_subject: "Your lesson",
   reminders_enabled: "🔔 Lesson reminders are now <b>on</b>.",
   reminders_disabled: "🔕 Lesson reminders are now <b>off</b>. Send /reminders to turn them back on.",
@@ -237,6 +238,7 @@ const ru: Record<TranslationKey, string> = {
 
   reminder_message:
     "⏰ <b>Напоминание об уроке</b>\n{subject} — начнётся примерно через <b>{minutes}</b> мин (в <b>{time}</b>).",
+  reminder_morning: "🌅 <b>Доброе утро!</b> {subject} — сегодня в <b>{time}</b>.",
   reminder_default_subject: "Ваш урок",
   reminders_enabled: "🔔 Напоминания об уроках <b>включены</b>.",
   reminders_disabled: "🔕 Напоминания об уроках <b>выключены</b>. Отправьте /reminders, чтобы включить снова.",
