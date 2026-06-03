@@ -22,6 +22,7 @@ import {
   getLevelForXP,
   getXPProgress,
 } from "../../data/gamification.js";
+import { getConnection, setRemindersEnabled } from "../../data/connections.js";
 import { renderReport } from "../report.js";
 
 /** Resolve the logged-in student id, or tell the user to log in. */
@@ -157,6 +158,27 @@ export async function showProgress(ctx: BotContext): Promise<void> {
     t(lang, "progress_web_hint"),
   ];
   await view(ctx, lines.join("\n"), backToMenuKeyboard(lang));
+}
+
+/** /reminders — toggle lesson reminders for this student. */
+export async function toggleReminders(ctx: BotContext): Promise<void> {
+  const studentId = requireStudent(ctx);
+  if (!studentId || !ctx.from) return;
+  const lang = ctx.session.lang;
+
+  const conn = await getConnection(ctx.from.id);
+  const currentlyOn = conn?.remindersEnabled !== false; // default on
+  const next = !currentlyOn;
+  try {
+    await setRemindersEnabled(ctx.from.id, next);
+  } catch (err) {
+    console.error("toggleReminders failed:", err);
+    await ctx.reply(t(lang, "error_generic"), { parse_mode: "HTML" });
+    return;
+  }
+  await ctx.reply(t(lang, next ? "reminders_enabled" : "reminders_disabled"), {
+    parse_mode: "HTML",
+  });
 }
 
 export { showMainMenu };

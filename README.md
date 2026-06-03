@@ -28,6 +28,7 @@ on the website's teacher view (marked `completedVia: "bot"`).
 - 🎮 **My progress** — XP, level, coins, weekly streak and badges, **kept in
   sync** with the website's gamification (`studentGameProfiles`).
 - 🌐 **Language** — each student picks English or Russian (`/language`).
+- ⏰ **Lesson reminders** — a DM before each lesson (default 60 and 10 minutes; `/reminders` to toggle).
 
 ### For teachers
 - 🔐 Log in with the website's admin credentials (`admin` / `2206` by default).
@@ -53,6 +54,7 @@ Everything is the existing Firestore data model:
 | Gamification | `studentGameProfiles` | XP/coins/streak math ported 1:1 from the site |
 | Voice recordings | Firebase Storage `voiceAnswers/…` | same path scheme as the website |
 | Telegram ↔ student links | `telegramConnections` | bot-owned docs are id-prefixed `etb_…` |
+| Lesson schedule (read-only) | `weeklySchedule` | for reminders; `dayIndex` + UTC `time` + `timezone` |
 
 The bot uses the **Firebase client SDK with anonymous auth** — exactly like the
 website — which satisfies the shared Firestore/Storage security rules without
@@ -102,6 +104,40 @@ docker run --env-file .env english-bot
 
 ---
 
+## Lesson reminders & the DST caveat
+
+The bot DMs students before their lessons — offsets via `REMINDER_OFFSETS`
+(default `60,10` minutes), and each student can toggle them with `/reminders`.
+It only reminds students who have logged into the bot, reads lesson times from
+the website's `weeklySchedule`, and is **fully independent of the legacy Cloud
+Functions** — if those still send reminders, disable them to avoid duplicates.
+
+**Heads-up about how the website stores lesson times (a pre-existing bug).**
+When you save a lesson, `rv-website/src/components/StudentWeeklySchedule.js`
+(lines ~215–227) converts the entered time to a **fixed UTC** string using the
+DST offset *in effect on the day you saved it*, and stores that (`time` = UTC
+`"HH:mm"`, plus a separate `timezone`). That is why:
+
+- **Moscow never drifts** — `Europe/Moscow` has no daylight saving, so its
+  offset (+3) is always correct.
+- **Europe / UK / US drift by an hour** — after a clock change, the frozen UTC
+  no longer matches the intended local time, so **both** the time shown in the
+  app **and** any reminders shift by an hour.
+
+**Recommended fix (small, on the website side):** stop pre-converting to UTC on
+save. Store the wall-clock time exactly as entered (e.g. `"16:00"`) together
+with the IANA `timezone`, and convert to UTC only *when you need it* (display or
+reminder), using the **actual lesson date** so the correct DST offset is
+applied — i.e. `moment.tz('YYYY-MM-DD HH:mm', timezone)` on read instead of
+`moment...utc()` on save. A one-time migration would re-interpret existing rows,
+and storing a per-student default timezone would stop new students falling back
+to Moscow.
+
+Until that lands, the bot's reminders fire on the **same UTC basis the website
+already uses**, so they stay consistent with what the app shows.
+
+---
+
 ## Security notes
 
 - **Never commit `.env`** — it is git-ignored. The bot token and Gemini key live
@@ -141,8 +177,8 @@ scripts/smoke-test.ts  offline-safe integration check
 
 Good next steps for the tutoring business:
 
-- ⏰ **Lesson reminders** (the planned feature): the `weeklySchedule` collection
-  already exists — a daily scheduler could DM each student before their lesson.
+- ✅ **Lesson reminders** — done (see the section above). Fixing the website's
+  DST storage is the recommended follow-up so reminder/display times stop drifting.
 - 🔔 **Homework nudges**: gently remind students with pending homework after N days.
 - 🗓 **Weekly recap** to the teacher (who's behind, who's on a streak).
 - 🧾 **Payment/attendance reminders** reusing the website's billing fields.

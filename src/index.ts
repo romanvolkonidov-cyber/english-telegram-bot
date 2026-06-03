@@ -12,7 +12,9 @@ import {
   showProgress,
   showResults,
   showStudentReport,
+  toggleReminders,
 } from "./bot/handlers/student.js";
+import { startReminderScheduler } from "./services/reminders.js";
 import {
   quizChoice,
   quizOnText,
@@ -66,6 +68,7 @@ async function goHome(ctx: BotContext): Promise<void> {
 bot.command("start", startCommand);
 bot.command("menu", goHome);
 bot.command("language", showLanguagePicker);
+bot.command("reminders", toggleReminders);
 bot.command("logout", logoutCommand);
 bot.command("help", (ctx) => ctx.reply(t(ctx.session.lang, "help"), { parse_mode: "HTML" }));
 
@@ -138,20 +141,36 @@ bot.catch((err) => {
   console.error("Bot error while handling update:", err.error);
 });
 
+// Keep the long-running process alive on stray async errors instead of crashing.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+});
+
 async function main(): Promise<void> {
-  await bot.api.setMyCommands([
-    { command: "start", description: "Log in / open the bot" },
-    { command: "menu", description: "Main menu" },
-    { command: "language", description: "Change language" },
-    { command: "logout", description: "Log out" },
-    { command: "help", description: "Help" },
-  ]);
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Log in / open the bot" },
+      { command: "menu", description: "Main menu" },
+      { command: "language", description: "Change language" },
+      { command: "reminders", description: "Lesson reminders on/off" },
+      { command: "logout", description: "Log out" },
+      { command: "help", description: "Help" },
+    ]);
+  } catch (err) {
+    console.error("setMyCommands failed (continuing):", err);
+  }
 
   process.once("SIGINT", () => bot.stop());
   process.once("SIGTERM", () => bot.stop());
 
   await bot.start({
-    onStart: (info) => console.log(`✅ @${info.username} is running (long polling).`),
+    onStart: (info) => {
+      console.log(`✅ @${info.username} is running (long polling).`);
+      startReminderScheduler(bot);
+    },
   });
 }
 

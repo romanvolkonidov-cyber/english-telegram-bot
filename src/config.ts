@@ -26,6 +26,15 @@ export type Language = "en" | "ru";
 
 const defaultLanguage = (process.env.DEFAULT_LANGUAGE || "en").toLowerCase();
 
+/** Parse "60,10" → [60, 10] (minutes before a lesson to remind). */
+function parseOffsets(raw: string | undefined): number[] {
+  const parsed = (raw || "60,10")
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return parsed.length ? Array.from(new Set(parsed)).sort((a, b) => b - a) : [60, 10];
+}
+
 export const config = {
   botToken: required("BOT_TOKEN"),
 
@@ -37,6 +46,9 @@ export const config = {
   adminPassword: (process.env.ADMIN_PASSWORD || "2206").trim(),
 
   defaultLanguage: (defaultLanguage === "ru" ? "ru" : "en") as Language,
+
+  /** Minutes before a lesson to send reminders (e.g. [60, 10]). */
+  reminderOffsets: parseOffsets(process.env.REMINDER_OFFSETS),
 
   /** Shared Firebase project with the website (tracking-budget-app). */
   firebase: {

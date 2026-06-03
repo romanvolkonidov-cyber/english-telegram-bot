@@ -121,6 +121,23 @@ export interface Connection {
   name?: string;
   language: Language;
   botSource: "english-telegram-bot";
+  /** Lesson reminders opt-out (default on). */
+  remindersEnabled?: boolean;
+  /** Keys of reminders already sent, to avoid duplicates. */
+  sentReminders?: string[];
   linkedAt?: unknown;
   lastActive?: unknown;
+}
+
+/** A weekly lesson, as stored by the website in `weeklySchedule`. */
+export interface Lesson {
+  id: string;
+  studentId: string;
+  /** 0 = Monday … 6 = Sunday. */
+  dayIndex: number;
+  /** "HH:mm" — stored by the website in UTC (see README "Lesson times & DST"). */
+  time: string;
+  timezone?: string;
+  subject?: string;
+  teacher?: string;
 }

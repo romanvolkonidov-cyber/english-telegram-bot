@@ -116,6 +116,13 @@ const en = {
     "📩 <b>{name}</b> finished <b>{topic}</b>\n📊 {pct}% ({correct}/{total})",
   teacher_notify_view: "👀 Review",
 
+  // ── reminders ──
+  reminder_message:
+    "⏰ <b>Lesson reminder</b>\n{subject} — starts in about <b>{minutes}</b> min (at <b>{time}</b>).",
+  reminder_default_subject: "Your lesson",
+  reminders_enabled: "🔔 Lesson reminders are now <b>on</b>.",
+  reminders_disabled: "🔕 Lesson reminders are now <b>off</b>. Send /reminders to turn them back on.",
+
   // ── generic ──
   btn_back: "⬅️ Back",
   btn_menu: "🏠 Menu",
@@ -124,7 +131,7 @@ const en = {
   error_generic: "⚠️ Something went wrong. Please try again.",
   loading: "⏳ Loading…",
   help:
-    "ℹ️ <b>Help</b>\n\n/start — log in or open the bot\n/menu — main menu\n/language — change language\n/logout — log out\n\nDo your homework right here in the chat, then review your results any time.",
+    "ℹ️ <b>Help</b>\n\n/start — log in or open the bot\n/menu — main menu\n/language — change language\n/reminders — turn lesson reminders on/off\n/logout — log out\n\nDo your homework right here in the chat, then review your results any time.",
 } as const;
 
 type TranslationKey = keyof typeof en;
@@ -226,6 +233,12 @@ const ru: Record<TranslationKey, string> = {
     "📩 <b>{name}</b> выполнил(а) <b>{topic}</b>\n📊 {pct}% ({correct}/{total})",
   teacher_notify_view: "👀 Посмотреть",
 
+  reminder_message:
+    "⏰ <b>Напоминание об уроке</b>\n{subject} — начнётся примерно через <b>{minutes}</b> мин (в <b>{time}</b>).",
+  reminder_default_subject: "Ваш урок",
+  reminders_enabled: "🔔 Напоминания об уроках <b>включены</b>.",
+  reminders_disabled: "🔕 Напоминания об уроках <b>выключены</b>. Отправьте /reminders, чтобы включить снова.",
+
   btn_back: "⬅️ Назад",
   btn_menu: "🏠 Меню",
   btn_open: "▶️ Открыть",
@@ -233,7 +246,7 @@ const ru: Record<TranslationKey, string> = {
   error_generic: "⚠️ Что-то пошло не так. Попробуйте ещё раз.",
   loading: "⏳ Загрузка…",
   help:
-    "ℹ️ <b>Помощь</b>\n\n/start — вход или открыть бота\n/menu — главное меню\n/language — сменить язык\n/logout — выйти\n\nВыполняйте домашние задания прямо в чате и смотрите результаты в любой момент.",
+    "ℹ️ <b>Помощь</b>\n\n/start — вход или открыть бота\n/menu — главное меню\n/language — сменить язык\n/reminders — напоминания об уроках вкл/выкл\n/logout — выйти\n\nВыполняйте домашние задания прямо в чате и смотрите результаты в любой момент.",
 };
 
 const dictionaries: Record<Language, Record<TranslationKey, string>> = { en, ru };
