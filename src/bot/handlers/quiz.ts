@@ -126,7 +126,9 @@ async function renderCurrentQuestion(ctx: BotContext): Promise<void> {
       reply_markup: multipleChoiceKeyboard(lang, flow.index, q.options ?? []),
     });
   } else if (mode === "voice") {
-    await ctx.reply(`${header}\n\n${t(lang, "quiz_prompt_voice")}`, {
+    const limit =
+      q.maxSeconds && q.maxSeconds > 0 ? `\n${t(lang, "quiz_voice_limit", { max: q.maxSeconds })}` : "";
+    await ctx.reply(`${header}\n\n${t(lang, "quiz_prompt_voice")}${limit}`, {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
       reply_markup: answerControlsKeyboard(lang),
@@ -228,6 +230,16 @@ export async function quizOnVoice(ctx: BotContext): Promise<void> {
   if (questionMode(q) !== "voice") {
     const hint = questionMode(q) === "choice" ? "quiz_prompt_choice" : "quiz_expecting_text";
     await ctx.reply(t(lang, hint), { parse_mode: "HTML" });
+    return;
+  }
+
+  // Enforce the exercise's max length (if set) before spending an AI call.
+  const maxSeconds = q.maxSeconds && q.maxSeconds > 0 ? q.maxSeconds : undefined;
+  const duration = ctx.message?.voice?.duration ?? ctx.message?.audio?.duration;
+  if (maxSeconds && duration && duration > maxSeconds) {
+    await ctx.reply(t(lang, "quiz_voice_too_long", { max: maxSeconds, actual: duration }), {
+      parse_mode: "HTML",
+    });
     return;
   }
 
