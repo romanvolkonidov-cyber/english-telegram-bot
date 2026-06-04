@@ -53,6 +53,9 @@ const en = {
   quiz_prompt_choice: "👇 Choose the correct answer:",
   quiz_prompt_voice:
     "🎤 Send a <b>voice message</b> with your spoken answer.",
+  quiz_voice_limit: "⏱ Keep it under <b>{max}s</b>.",
+  quiz_voice_too_long:
+    "🎤 Your recording is <b>{actual}s</b>, but this answer must be under <b>{max}s</b>. Please record a shorter answer and try again.",
   quiz_voice_processing: "🎧 Listening to your answer…",
   quiz_voice_feedback: "🗣 <b>Feedback:</b> {feedback}",
   quiz_voice_saved: "🎤 Recorded ✓ Your teacher will listen to this.",
@@ -179,6 +182,9 @@ const ru: Record<TranslationKey, string> = {
   quiz_prompt_choice: "👇 Выберите правильный ответ:",
   quiz_prompt_voice:
     "🎤 Отправьте <b>голосовое сообщение</b> с устным ответом.",
+  quiz_voice_limit: "⏱ Не длиннее <b>{max} сек</b>.",
+  quiz_voice_too_long:
+    "🎤 Ваша запись — <b>{actual} сек</b>, но ответ должен быть не длиннее <b>{max} сек</b>. Запишите покороче и попробуйте снова.",
   quiz_voice_processing: "🎧 Слушаю ваш ответ…",
   quiz_voice_feedback: "🗣 <b>Отзыв:</b> {feedback}",
   quiz_voice_saved: "🎤 Записано ✓ Преподаватель прослушает ответ.",
