@@ -6,6 +6,54 @@ export interface VoiceEvaluation {
 }
 
 /**
+ * Plain verbatim transcription of a spoken message — used by the /learn tutor
+ * so a student can answer by voice. Returns null if Gemini isn't configured or
+ * the call fails (the caller then asks the student to type instead).
+ */
+export async function transcribeSpeech(
+  audioBase64: string,
+  mimeType: string,
+): Promise<string | null> {
+  if (!hasGemini) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { inline_data: { mime_type: mimeType || "audio/ogg", data: audioBase64 } },
+                {
+                  text:
+                    "Transcribe this audio of an English learner speaking, exactly and verbatim. " +
+                    "Output ONLY the transcription text — no labels, no quotes, no commentary.",
+                },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0, maxOutputTokens: 400 },
+        }),
+      },
+    );
+    if (!res.ok) {
+      console.error("Gemini transcribe error:", res.status, await res.text());
+      return null;
+    }
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    return text || null;
+  } catch (err) {
+    console.error("transcribeSpeech error:", err);
+    return null;
+  }
+}
+
+/**
  * Transcribe and give feedback on a spoken answer using Gemini.
  * Mirrors rv2class/app/api/evaluate-voice (same model, prompt and parsing).
  * Returns null if no API key is configured or the call fails — voice answers
