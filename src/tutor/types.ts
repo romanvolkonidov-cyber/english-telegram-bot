@@ -50,6 +50,10 @@ export interface PendingQuiz {
 export interface TutorReply {
   /** The tutor's message to the student (may mix English and the native language). */
   say: string;
+  /** Clean English (no other language) to speak aloud as a voice note, or null. */
+  voiceText: string | null;
+  /** Short description of a picture to show (vocabulary lessons), or null. */
+  image: string | null;
   /** Optional multiple-choice check. Null when the tutor just wants a free reply. */
   quiz: PendingQuiz | null;
   /** What we expect next: a free-text/voice answer, a quiz tap, or nothing. */

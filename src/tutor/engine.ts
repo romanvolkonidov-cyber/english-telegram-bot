@@ -47,13 +47,15 @@ Teach toward the goal: briefly introduce the point, give one or two clear exampl
 OUTPUT — respond with ONLY a JSON object (no markdown, no code fences, no text outside it):
 {
   "say": string,                 // your message to the student
+  "voiceText": string | null,     // a short ENGLISH-ONLY sentence (<=20 words) to be spoken aloud as a voice note so the student hears correct pronunciation; null if not useful this turn
+  "image": string | null,         // a few words describing ONE simple picture to show the student (e.g. "a red apple"); use only for concrete vocabulary that a picture makes clearer; null otherwise
   "correction": string | null,   // gentle fix of the student's previous message, or null
   "quiz": null | { "question": string, "options": [string, ...2-4 items], "correctIndex": number, "explain": string },
   "expect": "free" | "quiz" | "none",   // "quiz" if you asked a multiple-choice question; "free" if you want them to write/speak; "none" to just continue
   "masteryDelta": number,         // how much this turn moved them toward the goal, from -1 to +2
   "lessonComplete": boolean
 }
-Set "expect" to "quiz" whenever "quiz" is not null. Keep "say" concise and friendly.`;
+Set "expect" to "quiz" whenever "quiz" is not null. Keep "say" concise and friendly. Use "voiceText" often for greetings, examples, and pronunciation so the beginner hears real English; keep it ENGLISH ONLY. Use "image" mainly in vocabulary lessons, sparingly elsewhere.`;
 }
 
 function toMessages(history: TutorTurn[]): ClaudeMessage[] {
@@ -96,6 +98,8 @@ function parseReply(raw: string): TutorReply {
         : null;
     return {
       say: typeof obj.say === "string" && obj.say.trim() ? obj.say.trim() : raw.trim(),
+      voiceText: typeof obj.voiceText === "string" && obj.voiceText.trim() ? obj.voiceText.trim() : null,
+      image: typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null,
       correction: typeof obj.correction === "string" && obj.correction.trim() ? obj.correction.trim() : null,
       quiz,
       expect: quiz ? "quiz" : obj.expect === "none" ? "none" : "free",
@@ -106,6 +110,8 @@ function parseReply(raw: string): TutorReply {
     // Not valid JSON — fall back to treating the whole thing as the message.
     return {
       say: raw.trim(),
+      voiceText: null,
+      image: null,
       correction: null,
       quiz: null,
       expect: "free",

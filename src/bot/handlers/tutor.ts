@@ -1,4 +1,4 @@
-import { InlineKeyboard } from "grammy";
+import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext, Flow } from "../context.js";
 import { esc } from "../../util/format.js";
 import { hasAnthropic } from "../../config.js";
@@ -19,6 +19,7 @@ import { getTutorReply, nextMastery } from "../../tutor/engine.js";
 import type { LearnerProfile, LessonContext, TutorReply } from "../../tutor/types.js";
 import { downloadTelegramFile, toBase64 } from "../../services/voice.js";
 import { transcribeSpeech } from "../../services/gemini.js";
+import { synthesizeSpeech, generateImage } from "../../services/media.js";
 
 type TutorFlow = Extract<Flow, { kind: "tutor" }>;
 
@@ -164,6 +165,36 @@ async function think(ctx: BotContext): Promise<void> {
   }
 }
 
+/** Generate and send an illustrative picture (best-effort; silent on failure). */
+async function sendImage(ctx: BotContext, prompt: string): Promise<void> {
+  try {
+    await ctx.replyWithChatAction("upload_photo");
+  } catch {
+    /* non-fatal */
+  }
+  try {
+    const img = await generateImage(prompt);
+    if (img) await ctx.replyWithPhoto(new InputFile(img, "vocab.png"));
+  } catch (err) {
+    console.error("tutor image failed:", err);
+  }
+}
+
+/** Speak an English line as a voice note (best-effort; silent on failure). */
+async function sendVoice(ctx: BotContext, text: string): Promise<void> {
+  try {
+    await ctx.replyWithChatAction("record_voice");
+  } catch {
+    /* non-fatal */
+  }
+  try {
+    const ogg = await synthesizeSpeech(text);
+    if (ogg) await ctx.replyWithVoice(new InputFile(ogg, "tutor.ogg"));
+  } catch (err) {
+    console.error("tutor voice failed:", err);
+  }
+}
+
 /** Render a tutor turn: persist mastery, show the message, set up what's next. */
 async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<void> {
   const flow = tutorFlow(ctx);
@@ -183,11 +214,13 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   const assistantText = (reply.correction ? `(${reply.correction})\n` : "") + reply.say;
   flow.history.push({ role: "tutor", text: assistantText });
 
-  // Show correction (if any) then the message.
+  // Correction first, then an optional picture, the message, and a spoken model.
   if (reply.correction) {
     await ctx.reply(`✏️ ${reply.correction}`);
   }
+  if (reply.image) await sendImage(ctx, reply.image);
   await ctx.reply(reply.say);
+  if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
 
   if (reply.lessonComplete) {
     flow.pendingQuiz = null;

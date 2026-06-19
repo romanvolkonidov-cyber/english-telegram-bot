@@ -47,6 +47,11 @@ export const config = {
   /** Claude model used to teach. Sonnet balances quality and cost for many turns. */
   claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
 
+  /** Gemini models for the tutor's voice (TTS) and vocabulary images — reuse GEMINI_API. */
+  geminiTtsModel: (process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts").trim(),
+  geminiTtsVoice: (process.env.GEMINI_TTS_VOICE || "Kore").trim(),
+  geminiImageModel: (process.env.GEMINI_IMAGE_MODEL || "gemini-2.0-flash-preview-image-generation").trim(),
+
   /** Teacher login used inside the bot. Defaults match the website. */
   adminUsername: (process.env.ADMIN_USERNAME || "admin").trim(),
   adminPassword: (process.env.ADMIN_PASSWORD || "2206").trim(),
