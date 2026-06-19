@@ -1,7 +1,7 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext, Flow } from "../context.js";
 import { esc } from "../../util/format.js";
-import { hasAnthropic } from "../../config.js";
+import { hasTutorLLM } from "../../config.js";
 import {
   CURRICULUM,
   getTopic,
@@ -66,9 +66,10 @@ function lessonContext(topicId: number, lesson: MicroLesson): LessonContext {
 
 /** Entry point: /learn. */
 export async function learnCommand(ctx: BotContext): Promise<void> {
-  if (!hasAnthropic) {
+  if (!hasTutorLLM) {
     await ctx.reply(
-      "🤖 The AI tutor isn't set up yet. Ask the admin to add an ANTHROPIC_API_KEY.",
+      "🤖 The AI tutor isn't set up yet. Add an ANTHROPIC_API_KEY, or a Bedrock " +
+        "key (AWS_BEARER_TOKEN_BEDROCK + AWS_REGION).",
     );
     return;
   }

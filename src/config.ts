@@ -44,8 +44,20 @@ export const config = {
   /** Anthropic key powering the /learn AI tutor. Without it, /learn is disabled. */
   anthropicApiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
 
-  /** Claude model used to teach. Sonnet balances quality and cost for many turns. */
+  /** Claude model used to teach (direct Anthropic API). */
   claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
+
+  /**
+   * Alternative to the direct Anthropic API: Amazon Bedrock ("Claude on AWS").
+   * A Bedrock API key is a single bearer token (not an sk-ant- key), used against
+   * the Bedrock endpoint with `Authorization: Bearer`. Set the key, the AWS
+   * region you enabled Claude in, and the model/inference-profile id.
+   */
+  bedrockApiKey: (process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.BEDROCK_API_KEY || "").trim(),
+  bedrockRegion: (process.env.AWS_REGION || process.env.BEDROCK_REGION || "us-east-1").trim(),
+  bedrockModelId: (
+    process.env.BEDROCK_MODEL_ID || "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  ).trim(),
 
   /** Gemini models for the tutor's voice (TTS) and vocabulary images — reuse GEMINI_API. */
   geminiTtsModel: (process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts").trim(),
@@ -93,8 +105,14 @@ export const config = {
 
 export const hasGemini = config.geminiApiKey.length > 0;
 
-/** The /learn AI tutor is only available when an Anthropic key is configured. */
+/** A direct Anthropic API key is configured. */
 export const hasAnthropic = config.anthropicApiKey.length > 0;
+
+/** An Amazon Bedrock ("Claude on AWS") key is configured. */
+export const hasBedrock = config.bedrockApiKey.length > 0;
+
+/** The /learn AI tutor works if either Claude backend is configured. */
+export const hasTutorLLM = hasAnthropic || hasBedrock;
 
 /** Whether a dedicated tutor Firebase project is configured (vs. shared fallback). */
 export const hasTutorFirebase =
