@@ -30,6 +30,16 @@ import {
   showTeacherReport,
 } from "./bot/handlers/teacher.js";
 import { setLanguage, showLanguagePicker } from "./bot/handlers/language.js";
+import {
+  learnCommand,
+  showTopics,
+  showLessons,
+  startLesson,
+  tutorNext,
+  tutorOnText,
+  tutorOnVoice,
+  tutorQuizAnswer,
+} from "./bot/handlers/tutor.js";
 
 const bot = new Bot<BotContext>(config.botToken);
 
@@ -58,10 +68,11 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
-// A command (e.g. /menu, /start) always escapes an in-progress quiz.
+// A command (e.g. /menu, /start) always escapes an in-progress quiz or lesson.
 bot.use(async (ctx, next) => {
   const text = ctx.message?.text;
-  if (text && text.startsWith("/") && ctx.session.flow?.kind === "quiz") {
+  const kind = ctx.session.flow?.kind;
+  if (text && text.startsWith("/") && (kind === "quiz" || kind === "tutor")) {
     ctx.session.flow = undefined;
   }
   await next();
@@ -79,6 +90,7 @@ async function goHome(ctx: BotContext): Promise<void> {
 bot.command("start", startCommand);
 bot.command("menu", goHome);
 bot.command("language", showLanguagePicker);
+bot.command("learn", learnCommand);
 bot.command("reminders", toggleReminders);
 bot.command("logout", logoutCommand);
 bot.command("help", (ctx) => ctx.reply(t(ctx.session.lang, "help"), { parse_mode: "HTML" }));
@@ -95,9 +107,23 @@ bot.on("callback_query:data", async (ctx) => {
     }
     if (data === "quiz:skip") return await quizSkip(ctx);
     if (data === "quiz:quit") return await quizQuit(ctx);
+    // Tutor quiz taps acknowledge themselves (with correct/incorrect text).
+    if (data.startsWith("lrn:q:")) return await tutorQuizAnswer(ctx, Number(data.slice("lrn:q:".length)));
 
     // Everything else: stop the loading spinner first.
     await ctx.answerCallbackQuery();
+
+    // ── AI tutor navigation ──
+    if (data === "learn" || data === "lrn:topics") return await showTopics(ctx);
+    if (data === "lrn:next") return await tutorNext(ctx);
+    if (data.startsWith("lrn:t:")) return await showLessons(ctx, Number(data.slice("lrn:t:".length)));
+    if (data.startsWith("lrn:l:")) {
+      const rest = data.slice("lrn:l:".length); // "<topicId>:<lessonId>"
+      const sep = rest.indexOf(":");
+      if (sep !== -1) {
+        return await startLesson(ctx, Number(rest.slice(0, sep)), rest.slice(sep + 1));
+      }
+    }
 
     if (data === "menu") return await goHome(ctx);
     if (data === "hw:list") return await showHomeworkList(ctx);
@@ -133,17 +159,19 @@ bot.on("callback_query:data", async (ctx) => {
   }
 });
 
-// ── Text routing (login / quiz / fallback) ──
+// ── Text routing (login / quiz / tutor / fallback) ──
 bot.on("message:text", async (ctx) => {
   const flow = ctx.session.flow;
   if (flow?.kind === "login") return await loginOnText(ctx, ctx.message.text);
   if (flow?.kind === "quiz") return await quizOnText(ctx, ctx.message.text);
+  if (flow?.kind === "tutor") return await tutorOnText(ctx, ctx.message.text);
   await goHome(ctx);
 });
 
 // ── Voice answers ──
 const onVoice = async (ctx: BotContext) => {
   if (ctx.session.flow?.kind === "quiz") await quizOnVoice(ctx);
+  else if (ctx.session.flow?.kind === "tutor") await tutorOnVoice(ctx);
 };
 bot.on("message:voice", onVoice);
 bot.on("message:audio", onVoice);
@@ -165,6 +193,7 @@ async function main(): Promise<void> {
     await bot.api.setMyCommands([
       { command: "start", description: "Log in / open the bot" },
       { command: "menu", description: "Main menu" },
+      { command: "learn", description: "AI English tutor (A1 course)" },
       { command: "language", description: "Change language" },
       { command: "reminders", description: "Lesson reminders on/off" },
       { command: "logout", description: "Log out" },

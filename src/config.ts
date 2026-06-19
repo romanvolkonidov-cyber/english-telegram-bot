@@ -41,6 +41,12 @@ export const config = {
   /** Optional — voice answers still work without it (no instant AI feedback). */
   geminiApiKey: (process.env.GEMINI_API || "").trim(),
 
+  /** Anthropic key powering the /learn AI tutor. Without it, /learn is disabled. */
+  anthropicApiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
+
+  /** Claude model used to teach. Sonnet balances quality and cost for many turns. */
+  claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
+
   /** Teacher login used inside the bot. Defaults match the website. */
   adminUsername: (process.env.ADMIN_USERNAME || "admin").trim(),
   adminPassword: (process.env.ADMIN_PASSWORD || "2206").trim(),
@@ -63,6 +69,28 @@ export const config = {
     messagingSenderId: "912992088190",
     appId: "1:912992088190:web:926c8826b3bc39e2eb282f",
   },
+
+  /**
+   * Separate Firebase project for the AI tutor (keeps learner data apart from
+   * the homework/budget backend). Filled from TUTOR_FB_* env vars. If left
+   * blank, the tutor falls back to the shared project above, namespacing its
+   * collections with a `tutor_` prefix so nothing collides.
+   */
+  tutorFirebase: {
+    apiKey: (process.env.TUTOR_FB_API_KEY || "").trim(),
+    authDomain: (process.env.TUTOR_FB_AUTH_DOMAIN || "").trim(),
+    projectId: (process.env.TUTOR_FB_PROJECT_ID || "").trim(),
+    storageBucket: (process.env.TUTOR_FB_STORAGE_BUCKET || "").trim(),
+    messagingSenderId: (process.env.TUTOR_FB_SENDER_ID || "").trim(),
+    appId: (process.env.TUTOR_FB_APP_ID || "").trim(),
+  },
 } as const;
 
 export const hasGemini = config.geminiApiKey.length > 0;
+
+/** The /learn AI tutor is only available when an Anthropic key is configured. */
+export const hasAnthropic = config.anthropicApiKey.length > 0;
+
+/** Whether a dedicated tutor Firebase project is configured (vs. shared fallback). */
+export const hasTutorFirebase =
+  config.tutorFirebase.apiKey.length > 0 && config.tutorFirebase.projectId.length > 0;

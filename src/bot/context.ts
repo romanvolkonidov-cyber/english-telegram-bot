@@ -1,6 +1,7 @@
 import type { Context, SessionFlavor } from "grammy";
 import type { Language } from "../config.js";
 import type { Question, SubmittedAnswer } from "../types.js";
+import type { TutorTurn, PendingQuiz } from "../tutor/types.js";
 
 /** Transient multi-step flows tracked in the (in-memory) session. */
 export type Flow =
@@ -16,6 +17,19 @@ export type Flow =
       answers: SubmittedAnswer[];
       /** topicId -> base sentence, for fill-in-the-blank rendering. */
       sentences: Record<string, string>;
+    }
+  | {
+      kind: "tutor";
+      topicId: number;
+      lessonId: string;
+      /** Cached mastery (0..3) for the current lesson, updated each turn. */
+      mastery: number;
+      /** Recent conversation, kept in memory for the running lesson. */
+      history: TutorTurn[];
+      /** A multiple-choice check awaiting the student's tap, if any. */
+      pendingQuiz?: PendingQuiz | null;
+      /** What the bot is waiting for from the student. */
+      awaiting: "free" | "quiz" | "none";
     };
 
 export interface SessionData {
