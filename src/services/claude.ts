@@ -1,4 +1,4 @@
-import { config, hasAnthropic, hasBedrock } from "../config.js";
+import { config, hasAnthropic, hasBedrock, hasClaudeAWS } from "../config.js";
 
 /**
  * Client for talking to Claude (the /learn AI tutor). Supports two backends and
@@ -103,8 +103,45 @@ async function callAnthropic(opts: ClaudeCall): Promise<string | null> {
   }
 }
 
+async function callClaudeAWS(opts: ClaudeCall): Promise<string | null> {
+  const system = opts.cacheSystem
+    ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
+    : opts.system;
+
+  const body: Record<string, unknown> = {
+    model: config.claudeModel, // bare first-party id, e.g. claude-sonnet-4-6
+    max_tokens: opts.maxTokens ?? 1024,
+    temperature: opts.temperature ?? 0.6,
+    system,
+    messages: opts.messages,
+  };
+
+  const url = `https://aws-external-anthropic.${config.awsRegion}.api.aws/v1/messages`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.awsApiKey}`,
+        "anthropic-workspace-id": config.awsWorkspaceId,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error("Claude (AWS) API error:", res.status, await res.text());
+      return null;
+    }
+    return extractText(await res.json());
+  } catch (err) {
+    console.error("callClaudeAWS error:", err);
+    return null;
+  }
+}
+
 /** Send a request to whichever Claude backend is configured. */
 export async function callClaude(opts: ClaudeCall): Promise<string | null> {
+  if (hasClaudeAWS) return callClaudeAWS(opts);
   if (hasBedrock) return callBedrock(opts);
   if (hasAnthropic) return callAnthropic(opts);
   return null;

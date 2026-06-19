@@ -59,6 +59,16 @@ export const config = {
     process.env.BEDROCK_MODEL_ID || "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
   ).trim(),
 
+  /**
+   * Claude Platform on AWS ("Claude on AWS") — Anthropic-operated, full API
+   * parity. The long-term API key is used as a bearer token against
+   * aws-external-anthropic.<region>.api.aws, with an anthropic-workspace-id
+   * header. Model ids are the bare first-party strings (see claudeModel).
+   */
+  awsApiKey: (process.env.ANTHROPIC_AWS_API_KEY || "").trim(),
+  awsWorkspaceId: (process.env.ANTHROPIC_AWS_WORKSPACE_ID || "").trim(),
+  awsRegion: (process.env.AWS_REGION || "us-east-1").trim(),
+
   /** Gemini models for the tutor's voice (TTS) and vocabulary images — reuse GEMINI_API. */
   geminiTtsModel: (process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts").trim(),
   geminiTtsVoice: (process.env.GEMINI_TTS_VOICE || "Kore").trim(),
@@ -111,8 +121,12 @@ export const hasAnthropic = config.anthropicApiKey.length > 0;
 /** An Amazon Bedrock ("Claude on AWS") key is configured. */
 export const hasBedrock = config.bedrockApiKey.length > 0;
 
-/** The /learn AI tutor works if either Claude backend is configured. */
-export const hasTutorLLM = hasAnthropic || hasBedrock;
+/** Claude Platform on AWS (Anthropic-operated) is configured. */
+export const hasClaudeAWS =
+  config.awsApiKey.length > 0 && config.awsWorkspaceId.length > 0;
+
+/** The /learn AI tutor works if any Claude backend is configured. */
+export const hasTutorLLM = hasAnthropic || hasBedrock || hasClaudeAWS;
 
 /** Whether a dedicated tutor Firebase project is configured (vs. shared fallback). */
 export const hasTutorFirebase =
