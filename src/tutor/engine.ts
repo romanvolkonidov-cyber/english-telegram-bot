@@ -38,12 +38,10 @@ TEACHING STYLE
 - Always correct mistakes kindly: note what was off and show the natural version, but lead with what was good.
 - Adapt to the student: if they struggle, slow down, simplify, give a hint or a clearer example; if they're confident, speed up and raise the challenge.
 - ${bilingual}
-- FORMATTING: you're on Telegram. Use *italic* for English examples the student should notice, **bold** for the one key word or rule, and emojis naturally. Keep each message short and skimmable. Do NOT write headings or long paragraphs.
-- VOICE vs TEXT — decide every turn what you want back and set "expect":
-  • Voice is the default for real communication — greetings, conversation, pronunciation, repeating examples, speaking practice. Prefer it. Set expect "voice".
-  • Text is for written exercises — spelling, fill-in-the-blank, word order, writing a sentence. Set expect "text".
-  • Always give "voiceText" (clean English) so the student HEARS you, especially when you set expect "voice".
-- The student may answer by voice or text either way — accept whatever they send; just steer toward the mode that fits the task.
+- YOU SPEAK TO THE STUDENT. Everything in "say" becomes a VOICE message — this is how you communicate, like a real tutor talking out loud. Write "say" the way you'd actually say it: natural, warm, short. No markdown or asterisks in "say" (it is spoken, not shown).
+- Put in "board" ONLY what the student needs to SEE in writing — the English word or sentence to read/repeat, or a written-exercise prompt. Most speaking turns need no board (leave it null). You may use *italic*/**bold** in "board" since it is displayed.
+- VOICE vs TEXT reply — set "expect": "voice" when you want the student to SPEAK (the default — conversation, pronunciation, speaking practice); "text" when you want them to TYPE (spelling, writing, word-order exercises).
+- The student may answer by voice or text either way — accept whatever they send.
 
 THIS LESSON
 ${facts}
@@ -51,16 +49,15 @@ Teach toward the goal: briefly introduce the point, give one or two clear exampl
 
 OUTPUT — respond with ONLY a JSON object (no markdown, no code fences, no text outside it):
 {
-  "say": string,                 // your message to the student
-  "voiceText": string | null,     // a short ENGLISH-ONLY sentence (<=20 words) to be spoken aloud as a voice note so the student hears correct pronunciation; null if not useful this turn
-  "image": string | null,         // a few words describing ONE simple picture to show the student (e.g. "a red apple"); use only for concrete vocabulary that a picture makes clearer; null otherwise
-  "correction": string | null,   // gentle fix of the student's previous message, or null
+  "say": string,                 // what you SAY OUT LOUD (becomes a voice message). Natural spoken language, no markdown. Speak any correction of the student here, kindly.
+  "board": string | null,         // text to SHOW on screen — the English word/sentence to read, or a written-exercise prompt. null on pure speaking turns. Keep it short.
+  "image": string | null,         // a few words describing ONE simple picture (e.g. "a red apple"); only for concrete vocabulary; null otherwise
   "quiz": null | { "question": string, "options": [string, ...2-4 items], "correctIndex": number, "explain": string },
-  "expect": "voice" | "text" | "quiz" | "none",   // "voice" = you want them to SPEAK; "text" = you want them to TYPE; "quiz" if you asked a multiple-choice question; "none" to just continue
+  "expect": "voice" | "text" | "quiz" | "none",   // "voice" = you want them to SPEAK (default); "text" = you want them to TYPE; "quiz" if you asked a multiple-choice question; "none" to just continue
   "masteryDelta": number,         // how much this turn moved them toward the goal, from -1 to +2
   "lessonComplete": boolean
 }
-Set "expect" to "quiz" whenever "quiz" is not null. Otherwise choose "voice" or "text" by the task (voice for communication/pronunciation, text for written exercises). Keep "say" concise and friendly. Use "voiceText" (ENGLISH ONLY) most turns so the beginner hears real English. Use "image" mainly in vocabulary lessons, sparingly elsewhere.`;
+Set "expect" to "quiz" whenever "quiz" is not null. "say" is always spoken — keep it short and natural. Use "board" only when the student must SEE something written. Use "image" mainly in vocabulary lessons.`;
 }
 
 function toMessages(history: TutorTurn[]): ClaudeMessage[] {
@@ -103,9 +100,8 @@ function parseReply(raw: string): TutorReply {
         : null;
     return {
       say: typeof obj.say === "string" && obj.say.trim() ? obj.say.trim() : raw.trim(),
-      voiceText: typeof obj.voiceText === "string" && obj.voiceText.trim() ? obj.voiceText.trim() : null,
+      board: typeof obj.board === "string" && obj.board.trim() ? obj.board.trim() : null,
       image: typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null,
-      correction: typeof obj.correction === "string" && obj.correction.trim() ? obj.correction.trim() : null,
       quiz,
       expect: quiz
         ? "quiz"
@@ -119,9 +115,8 @@ function parseReply(raw: string): TutorReply {
     // Not valid JSON — fall back to treating the whole thing as the message.
     return {
       say: raw.trim(),
-      voiceText: null,
+      board: null,
       image: null,
-      correction: null,
       quiz: null,
       expect: "voice",
       masteryDelta: 0,

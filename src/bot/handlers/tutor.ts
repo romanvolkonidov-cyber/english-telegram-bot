@@ -234,8 +234,9 @@ async function sendImage(ctx: BotContext, prompt: string): Promise<void> {
   }
 }
 
-/** Speak an English line as a voice note (best-effort; silent on failure). */
-async function sendVoice(ctx: BotContext, text: string): Promise<void> {
+/** Speak text as a voice note (the primary channel). Returns true if sent. */
+async function speak(ctx: BotContext, text: string): Promise<boolean> {
+  if (!text.trim()) return false;
   try {
     await ctx.replyWithChatAction("record_voice");
   } catch {
@@ -243,13 +244,37 @@ async function sendVoice(ctx: BotContext, text: string): Promise<void> {
   }
   try {
     const ogg = await synthesizeSpeech(text);
-    if (ogg) await ctx.replyWithVoice(new InputFile(ogg, "tutor.ogg"));
+    if (ogg) {
+      await ctx.replyWithVoice(new InputFile(ogg, "tutor.ogg"));
+      return true;
+    }
   } catch (err) {
     console.error("tutor voice failed:", err);
   }
+  return false;
 }
 
-/** Render a tutor turn: persist mastery, show the message, set up what's next. */
+/** Show the on-screen text bubble for a turn (board + optional reply hint). */
+async function showBoard(ctx: BotContext, board: string | null, hint: string): Promise<void> {
+  const parts: string[] = [];
+  if (board) parts.push(renderTutorHtml(board));
+  if (hint) parts.push(hint);
+  if (!parts.length) return;
+  try {
+    await ctx.reply(parts.join("\n\n"), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+  } catch {
+    try {
+      await ctx.reply([board ?? "", hint.replace(/<\/?i>/g, "")].filter(Boolean).join("\n\n"));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Render a tutor turn: speak it (primary), show text only when needed, set up next. */
 async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<void> {
   const flow = tutorFlow(ctx);
   if (!flow) return;
@@ -264,20 +289,22 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   flow.mastery = updated;
   await setLessonMastery(telegramId(ctx), flow.topicId, flow.lessonId, updated).catch(() => {});
 
-  // Record the tutor's turn for conversation continuity.
-  const assistantText = (reply.correction ? `(${reply.correction})\n` : "") + reply.say;
-  flow.history.push({ role: "tutor", text: assistantText });
+  // Remember what was said (and shown) for conversation continuity.
+  flow.history.push({
+    role: "tutor",
+    text: reply.say + (reply.board ? `\n[shown] ${reply.board}` : ""),
+  });
 
-  // A gentle correction, then an optional picture.
-  if (reply.correction) await replyRich(ctx, `✏️ ${reply.correction}`);
+  // Optional picture, then SPEAK (primary). Fall back to text only if voice fails.
   if (reply.image) await sendImage(ctx, reply.image);
+  const spoke = await speak(ctx, reply.say);
+  if (!spoke) await replyRich(ctx, reply.say);
 
   // Lesson finished.
   if (reply.lessonComplete) {
     flow.pendingQuiz = null;
     flow.awaiting = "none";
-    if (reply.say.trim()) await replyRich(ctx, reply.say);
-    if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
+    if (reply.board) await replyRich(ctx, reply.board);
     const next = nextLesson(flow.topicId, flow.lessonId);
     const kb = new InlineKeyboard();
     if (next) kb.text("▶️ Next lesson", "lrn:next").row();
@@ -290,46 +317,21 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   if (reply.quiz) {
     flow.pendingQuiz = reply.quiz;
     flow.awaiting = "quiz";
-    if (reply.say.trim()) await replyRich(ctx, reply.say);
-    if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
     const kb = new InlineKeyboard();
     reply.quiz.options.forEach((opt, i) => {
       kb.text(`${String.fromCharCode(65 + i)}. ${opt}`, `lrn:q:${i}`).row();
     });
-    await replyRich(ctx, `❓ ${reply.quiz.question}`, kb);
+    const q = (reply.board ? `${reply.board}\n\n` : "") + `❓ ${reply.quiz.question}`;
+    await replyRich(ctx, q, kb);
     return;
   }
 
-  // Normal turn — ask for a spoken or typed reply, and show which.
+  // Normal turn — show the board (if any). Only nudge to TYPE (voice is the default).
   flow.pendingQuiz = null;
   const want: "voice" | "text" | "none" =
     reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
   flow.awaiting = want;
-  const hintHtml =
-    want === "voice"
-      ? "\n\n🎤 <i>Reply with a voice message.</i>"
-      : want === "text"
-        ? "\n\n⌨️ <i>Type your answer.</i>"
-        : "";
-  try {
-    await ctx.reply(renderTutorHtml(reply.say) + hintHtml, {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
-  } catch {
-    const plain =
-      want === "voice"
-        ? "\n\n🎤 Reply with a voice message."
-        : want === "text"
-          ? "\n\n⌨️ Type your answer."
-          : "";
-    try {
-      await ctx.reply(reply.say + plain);
-    } catch {
-      /* ignore */
-    }
-  }
-  if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
+  await showBoard(ctx, reply.board, want === "text" ? "⌨️ <i>Type your answer.</i>" : "");
 }
 
 // ── Student input ────────────────────────────────────────────────────────────

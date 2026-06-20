@@ -46,22 +46,21 @@ export interface PendingQuiz {
 }
 
 /**
- * The structured reply we ask Claude to produce on every turn, so the bot can
- * render it deterministically (message + optional quiz) and update mastery.
+ * The structured reply we ask Claude to produce on every turn. Voice-first:
+ * `say` is spoken to the student as a voice note; `board` is shown as text only
+ * when they need to read it. The bot renders this deterministically.
  */
 export interface TutorReply {
-  /** The tutor's message to the student (may mix English and the native language). */
+  /** What the tutor SAYS OUT LOUD — sent as a voice note (the primary channel). May be bilingual. */
   say: string;
-  /** Clean English (no other language) to speak aloud as a voice note, or null. */
-  voiceText: string | null;
+  /** Optional text to DISPLAY — English words/sentences to read, an exercise prompt, spelling. Null when not needed. */
+  board: string | null;
   /** Short description of a picture to show (vocabulary lessons), or null. */
   image: string | null;
   /** Optional multiple-choice check. Null when the tutor just wants a free reply. */
   quiz: PendingQuiz | null;
   /** What we expect next: a spoken reply, a typed reply, a quiz tap, or nothing. */
   expect: "voice" | "text" | "quiz" | "none";
-  /** Gentle correction of the student's previous message, if needed. */
-  correction: string | null;
   /** Suggested change to this lesson's mastery (clamped by the engine). */
   masteryDelta: number;
   /** True when the lesson's goal has been met and we can move on. */
