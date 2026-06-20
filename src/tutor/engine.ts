@@ -38,7 +38,12 @@ TEACHING STYLE
 - Always correct mistakes kindly: note what was off and show the natural version, but lead with what was good.
 - Adapt to the student: if they struggle, slow down, simplify, give a hint or a clearer example; if they're confident, speed up and raise the challenge.
 - ${bilingual}
-- The student can reply by typing OR by sending a voice message. For pronunciation, speaking and review lessons, actively invite them to answer with a voice message so you can coach their speaking.
+- FORMATTING: you're on Telegram. Use *italic* for English examples the student should notice, **bold** for the one key word or rule, and emojis naturally. Keep each message short and skimmable. Do NOT write headings or long paragraphs.
+- VOICE vs TEXT — decide every turn what you want back and set "expect":
+  • Voice is the default for real communication — greetings, conversation, pronunciation, repeating examples, speaking practice. Prefer it. Set expect "voice".
+  • Text is for written exercises — spelling, fill-in-the-blank, word order, writing a sentence. Set expect "text".
+  • Always give "voiceText" (clean English) so the student HEARS you, especially when you set expect "voice".
+- The student may answer by voice or text either way — accept whatever they send; just steer toward the mode that fits the task.
 
 THIS LESSON
 ${facts}
@@ -51,11 +56,11 @@ OUTPUT — respond with ONLY a JSON object (no markdown, no code fences, no text
   "image": string | null,         // a few words describing ONE simple picture to show the student (e.g. "a red apple"); use only for concrete vocabulary that a picture makes clearer; null otherwise
   "correction": string | null,   // gentle fix of the student's previous message, or null
   "quiz": null | { "question": string, "options": [string, ...2-4 items], "correctIndex": number, "explain": string },
-  "expect": "free" | "quiz" | "none",   // "quiz" if you asked a multiple-choice question; "free" if you want them to write/speak; "none" to just continue
+  "expect": "voice" | "text" | "quiz" | "none",   // "voice" = you want them to SPEAK; "text" = you want them to TYPE; "quiz" if you asked a multiple-choice question; "none" to just continue
   "masteryDelta": number,         // how much this turn moved them toward the goal, from -1 to +2
   "lessonComplete": boolean
 }
-Set "expect" to "quiz" whenever "quiz" is not null. Keep "say" concise and friendly. Use "voiceText" often for greetings, examples, and pronunciation so the beginner hears real English; keep it ENGLISH ONLY. Use "image" mainly in vocabulary lessons, sparingly elsewhere.`;
+Set "expect" to "quiz" whenever "quiz" is not null. Otherwise choose "voice" or "text" by the task (voice for communication/pronunciation, text for written exercises). Keep "say" concise and friendly. Use "voiceText" (ENGLISH ONLY) most turns so the beginner hears real English. Use "image" mainly in vocabulary lessons, sparingly elsewhere.`;
 }
 
 function toMessages(history: TutorTurn[]): ClaudeMessage[] {
@@ -102,7 +107,11 @@ function parseReply(raw: string): TutorReply {
       image: typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null,
       correction: typeof obj.correction === "string" && obj.correction.trim() ? obj.correction.trim() : null,
       quiz,
-      expect: quiz ? "quiz" : obj.expect === "none" ? "none" : "free",
+      expect: quiz
+        ? "quiz"
+        : obj.expect === "text" || obj.expect === "none" || obj.expect === "voice"
+          ? obj.expect
+          : "voice",
       masteryDelta: Number.isFinite(obj.masteryDelta as number) ? Number(obj.masteryDelta) : 0,
       lessonComplete: Boolean(obj.lessonComplete),
     };
@@ -114,7 +123,7 @@ function parseReply(raw: string): TutorReply {
       image: null,
       correction: null,
       quiz: null,
-      expect: "free",
+      expect: "voice",
       masteryDelta: 0,
       lessonComplete: false,
     };
