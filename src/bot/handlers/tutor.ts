@@ -1,7 +1,7 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext, Flow } from "../context.js";
 import { esc } from "../../util/format.js";
-import { hasTutorLLM, hasGemini } from "../../config.js";
+import { config, hasTutorLLM, hasGemini } from "../../config.js";
 import {
   CURRICULUM,
   getTopic,
@@ -106,12 +106,60 @@ function renderTutorHtml(text: string): string {
   return out.join("\n");
 }
 
-/** Send a tutor message with formatting; fall back to plain text if HTML fails. */
+// Whether Telegram's sendRichMessage is available for this bot (cached after the
+// first attempt; null = unknown, false = method not enabled → use HTML instead).
+let richMessageAvailable: boolean | null = null;
+
+/**
+ * Try Telegram's new sendRichMessage (full Markdown: tables, headings, quotes,
+ * details, etc.). Returns true if sent. Called via raw fetch since grammY has no
+ * typed wrapper yet. Disables itself permanently if the method isn't enabled.
+ */
+async function sendRichMarkdown(
+  ctx: BotContext,
+  markdown: string,
+  keyboard?: InlineKeyboard,
+): Promise<boolean> {
+  if (richMessageAvailable === false) return false;
+  const chatId = ctx.chat?.id;
+  if (!chatId || !markdown.trim()) return false;
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      rich_message: { markdown },
+    };
+    if (keyboard) body.reply_markup = { inline_keyboard: keyboard.inline_keyboard };
+    const res = await fetch(`https://api.telegram.org/bot${config.botToken}/sendRichMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json()) as { ok: boolean; error_code?: number; description?: string };
+    if (data.ok) {
+      richMessageAvailable = true;
+      return true;
+    }
+    // Method not found / not enabled → stop trying for the rest of the process.
+    const desc = (data.description || "").toLowerCase();
+    if (data.error_code === 404 || desc.includes("not found") || desc.includes("unknown")) {
+      richMessageAvailable = false;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Send a tutor message with formatting. Prefer Telegram rich messages (native
+ * tables/headings/quotes); fall back to parse_mode HTML, then plain text.
+ */
 async function replyRich(
   ctx: BotContext,
   text: string,
   keyboard?: InlineKeyboard,
 ): Promise<void> {
+  if (await sendRichMarkdown(ctx, text, keyboard)) return;
   try {
     await ctx.reply(renderTutorHtml(text), {
       parse_mode: "HTML",
@@ -314,24 +362,10 @@ async function speak(ctx: BotContext, text: string): Promise<boolean> {
   return false;
 }
 
-/** Show the on-screen text bubble for a turn (board + optional reply hint). */
+/** Show the on-screen text for a turn (the board + an optional reply hint). */
 async function showBoard(ctx: BotContext, board: string | null, hint: string): Promise<void> {
-  const parts: string[] = [];
-  if (board) parts.push(renderTutorHtml(board));
-  if (hint) parts.push(hint);
-  if (!parts.length) return;
-  try {
-    await ctx.reply(parts.join("\n\n"), {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
-  } catch {
-    try {
-      await ctx.reply([board ?? "", hint.replace(/<\/?i>/g, "")].filter(Boolean).join("\n\n"));
-    } catch {
-      /* ignore */
-    }
-  }
+  const md = [board, hint].filter(Boolean).join("\n\n");
+  if (md) await replyRich(ctx, md);
 }
 
 /** Render a tutor turn: speak it (primary), show text only when needed, set up next. */
@@ -391,7 +425,7 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   const want: "voice" | "text" | "none" =
     reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
   flow.awaiting = want;
-  await showBoard(ctx, reply.board, want === "text" ? "⌨️ <i>Type your answer.</i>" : "");
+  await showBoard(ctx, reply.board, want === "text" ? "⌨️ *Type your answer.*" : "");
 }
 
 // ── Student input ────────────────────────────────────────────────────────────
