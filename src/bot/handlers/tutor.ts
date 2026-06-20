@@ -1,7 +1,7 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext, Flow } from "../context.js";
 import { esc } from "../../util/format.js";
-import { hasTutorLLM } from "../../config.js";
+import { hasTutorLLM, hasGemini } from "../../config.js";
 import {
   CURRICULUM,
   getTopic,
@@ -14,6 +14,7 @@ import {
   getLessonProgress,
   setLessonMastery,
   upsertProfile,
+  getProfile,
 } from "../../tutor/learnerModel.js";
 import { getTutorReply, nextMastery } from "../../tutor/engine.js";
 import type { LearnerProfile, LessonContext, TutorReply } from "../../tutor/types.js";
@@ -36,12 +37,44 @@ function telegramId(ctx: BotContext): string {
   return String(ctx.from?.id ?? "");
 }
 
-/** Load (or lazily create) the learner profile, seeding native language from UI. */
+/** Render the tutor's light Markdown (**bold**, *italic*, `code`) as Telegram HTML. */
+function renderTutorHtml(text: string): string {
+  let s = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  s = s.replace(/\*(.+?)\*/g, "<i>$1</i>");
+  s = s.replace(/`(.+?)`/g, "<code>$1</code>");
+  return s;
+}
+
+/** Send a tutor message with formatting; fall back to plain text if HTML fails. */
+async function replyRich(
+  ctx: BotContext,
+  text: string,
+  keyboard?: InlineKeyboard,
+): Promise<void> {
+  try {
+    await ctx.reply(renderTutorHtml(text), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: keyboard,
+    });
+  } catch {
+    try {
+      await ctx.reply(text, { reply_markup: keyboard });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Load the learner profile, creating it once with a sensible default if missing. */
 async function ensureProfile(ctx: BotContext): Promise<LearnerProfile> {
-  const native = ctx.session.lang === "ru" ? "Russian" : "English";
-  return upsertProfile(telegramId(ctx), {
+  const id = telegramId(ctx);
+  const existing = await getProfile(id).catch(() => null);
+  if (existing) return existing; // never overwrite a chosen language
+  return upsertProfile(id, {
     name: ctx.session.name ?? ctx.from?.first_name,
-    nativeLanguage: native,
+    nativeLanguage: ctx.session.lang === "ru" ? "Russian" : "English",
     level: "A1",
   });
 }
@@ -68,12 +101,40 @@ function lessonContext(topicId: number, lesson: MicroLesson): LessonContext {
 export async function learnCommand(ctx: BotContext): Promise<void> {
   if (!hasTutorLLM) {
     await ctx.reply(
-      "🤖 The AI tutor isn't set up yet. Add an ANTHROPIC_API_KEY, or a Bedrock " +
-        "key (AWS_BEARER_TOKEN_BEDROCK + AWS_REGION).",
+      "🤖 The AI tutor isn't set up yet. Add a Claude key — either ANTHROPIC_API_KEY, " +
+        "or Claude-on-AWS (ANTHROPIC_AWS_API_KEY + ANTHROPIC_AWS_WORKSPACE_ID).",
     );
     return;
   }
-  await ensureProfile(ctx);
+  const profile = await ensureProfile(ctx);
+  if (!profile.langConfirmed) return await showLanguageSetup(ctx);
+  await showTopics(ctx);
+}
+
+/** Ask the learner whether they want bilingual (Russian) help or English-only. */
+export async function showLanguageSetup(ctx: BotContext): Promise<void> {
+  ctx.session.flow = undefined;
+  const kb = new InlineKeyboard()
+    .text("🇷🇺 Объяснять по-русски", "lrn:lang:ru")
+    .row()
+    .text("🇬🇧 English only", "lrn:lang:en");
+  await ctx.reply(
+    "🌐 <b>How should I help you?</b>\n" +
+      "Should I explain grammar and instructions in <b>Russian</b>, or keep everything in <b>English</b>? " +
+      "(Practice stays in English either way.)\n\n" +
+      "🌐 Объяснять грамматику и подсказки <b>по-русски</b> — или занимаемся полностью <b>на английском</b>?",
+    { parse_mode: "HTML", reply_markup: kb },
+  );
+}
+
+/** Store the learner's help-language choice, then show the topic list. */
+export async function setTutorLanguage(
+  ctx: BotContext,
+  lang: "Russian" | "English",
+): Promise<void> {
+  await upsertProfile(telegramId(ctx), { nativeLanguage: lang, langConfirmed: true }).catch(
+    () => {},
+  );
   await showTopics(ctx);
 }
 
@@ -91,6 +152,7 @@ export async function showTopics(ctx: BotContext): Promise<void> {
     const tick = done >= topic.lessons.length ? "✅ " : "";
     kb.text(`${tick}${topic.id}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
   }
+  kb.text("🌐 Help language", "lrn:setup");
 
   await ctx.reply(
     "📚 <b>English A1 — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.",
@@ -215,17 +277,16 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   const assistantText = (reply.correction ? `(${reply.correction})\n` : "") + reply.say;
   flow.history.push({ role: "tutor", text: assistantText });
 
-  // Correction first, then an optional picture, the message, and a spoken model.
-  if (reply.correction) {
-    await ctx.reply(`✏️ ${reply.correction}`);
-  }
+  // A gentle correction, then an optional picture.
+  if (reply.correction) await replyRich(ctx, `✏️ ${reply.correction}`);
   if (reply.image) await sendImage(ctx, reply.image);
-  await ctx.reply(reply.say);
-  if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
 
+  // Lesson finished.
   if (reply.lessonComplete) {
     flow.pendingQuiz = null;
     flow.awaiting = "none";
+    if (reply.say.trim()) await replyRich(ctx, reply.say);
+    if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
     const next = nextLesson(flow.topicId, flow.lessonId);
     const kb = new InlineKeyboard();
     if (next) kb.text("▶️ Next lesson", "lrn:next").row();
@@ -234,18 +295,50 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
     return;
   }
 
+  // Multiple-choice check.
   if (reply.quiz) {
     flow.pendingQuiz = reply.quiz;
     flow.awaiting = "quiz";
+    if (reply.say.trim()) await replyRich(ctx, reply.say);
+    if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
     const kb = new InlineKeyboard();
     reply.quiz.options.forEach((opt, i) => {
       kb.text(`${String.fromCharCode(65 + i)}. ${opt}`, `lrn:q:${i}`).row();
     });
-    await ctx.reply(`❓ ${reply.quiz.question}`, { reply_markup: kb });
-  } else {
-    flow.pendingQuiz = null;
-    flow.awaiting = reply.expect === "none" ? "none" : "free";
+    await replyRich(ctx, `❓ ${reply.quiz.question}`, kb);
+    return;
   }
+
+  // Normal turn — ask for a spoken or typed reply, and show which.
+  flow.pendingQuiz = null;
+  const want: "voice" | "text" | "none" =
+    reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
+  flow.awaiting = want;
+  const hintHtml =
+    want === "voice"
+      ? "\n\n🎤 <i>Reply with a voice message.</i>"
+      : want === "text"
+        ? "\n\n⌨️ <i>Type your answer.</i>"
+        : "";
+  try {
+    await ctx.reply(renderTutorHtml(reply.say) + hintHtml, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+  } catch {
+    const plain =
+      want === "voice"
+        ? "\n\n🎤 Reply with a voice message."
+        : want === "text"
+          ? "\n\n⌨️ Type your answer."
+          : "";
+    try {
+      await ctx.reply(reply.say + plain);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (reply.voiceText) await sendVoice(ctx, reply.voiceText);
 }
 
 // ── Student input ────────────────────────────────────────────────────────────
@@ -271,6 +364,13 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
   if (!flow) return;
   if (flow.awaiting === "quiz") {
     await ctx.reply("👆 Tap one of the answer buttons above to answer the question.");
+    return;
+  }
+  if (!hasGemini) {
+    await ctx.reply(
+      "🎤 Voice isn't set up yet — the bot needs a GEMINI_API key to hear you and to " +
+        "speak. For now, please type your answer. ⌨️",
+    );
     return;
   }
 

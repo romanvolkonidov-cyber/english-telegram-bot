@@ -29,7 +29,7 @@ export type Flow =
       /** A multiple-choice check awaiting the student's tap, if any. */
       pendingQuiz?: PendingQuiz | null;
       /** What the bot is waiting for from the student. */
-      awaiting: "free" | "quiz" | "none";
+      awaiting: "voice" | "text" | "quiz" | "none";
     };
 
 export interface SessionData {

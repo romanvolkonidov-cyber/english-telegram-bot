@@ -10,6 +10,8 @@ export interface LearnerProfile {
   name?: string;
   /** Language the learner speaks natively, e.g. "Russian". Used for bilingual help. */
   nativeLanguage: string;
+  /** True once the learner has explicitly chosen their help language. */
+  langConfirmed?: boolean;
   /** Self-reported or inferred CEFR-ish level. We only teach A1 for now. */
   level: "A0" | "A1";
   createdAt: number;
@@ -56,8 +58,8 @@ export interface TutorReply {
   image: string | null;
   /** Optional multiple-choice check. Null when the tutor just wants a free reply. */
   quiz: PendingQuiz | null;
-  /** What we expect next: a free-text/voice answer, a quiz tap, or nothing. */
-  expect: "free" | "quiz" | "none";
+  /** What we expect next: a spoken reply, a typed reply, a quiz tap, or nothing. */
+  expect: "voice" | "text" | "quiz" | "none";
   /** Gentle correction of the student's previous message, if needed. */
   correction: string | null;
   /** Suggested change to this lesson's mastery (clamped by the engine). */
