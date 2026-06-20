@@ -14,8 +14,8 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
   const native = profile.nativeLanguage || "Russian";
   const bilingual =
     native.toLowerCase() === "english"
-      ? "Teach in English. Keep it simple (A1). You may give a tiny gloss in the student's words if they're stuck."
-      : `The student's first language is ${native}. Use ${native} to explain new grammar, give instructions, and unblock confusion — but keep English as the target: examples, drills, and the student's practice should be in English. As they get it, use less ${native}.`;
+      ? "Teach entirely in English, kept very simple (A1). Only drop in a word of the student's own language if they are truly stuck."
+      : `The student is a ${native}-speaking beginner who cannot yet follow a lesson run only in English. Conduct the lesson in ${native}: greetings, instructions, explanations, encouragement and corrections all in ${native}. English is the TARGET — the target words, example sentences, and whatever you ask the student to say or write are in English (add a short ${native} gloss when it helps). Keep ${native} as the working language throughout A1; do NOT drift into English-only.`;
 
   const facts = [
     `Topic: ${lesson.topicTitle}`,
