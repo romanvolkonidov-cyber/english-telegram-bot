@@ -425,7 +425,11 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   const want: "voice" | "text" | "none" =
     reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
   flow.awaiting = want;
-  await showBoard(ctx, reply.board, want === "text" ? "⌨️ *Type your answer.*" : "");
+  await showBoard(
+    ctx,
+    reply.board,
+    want === "text" ? "⌨️ *Type your answer.*" : want === "voice" ? "🎤 *Reply with a voice message.*" : "",
+  );
 }
 
 // ── Student input ────────────────────────────────────────────────────────────
