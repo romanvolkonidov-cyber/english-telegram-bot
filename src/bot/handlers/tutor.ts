@@ -37,13 +37,73 @@ function telegramId(ctx: BotContext): string {
   return String(ctx.from?.id ?? "");
 }
 
-/** Render the tutor's light Markdown (**bold**, *italic*, `code`) as Telegram HTML. */
+/** Convert the tutor's light Markdown to valid Telegram HTML (Bot API rich text). */
 function renderTutorHtml(text: string): string {
-  let s = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
-  s = s.replace(/\*(.+?)\*/g, "<i>$1</i>");
-  s = s.replace(/`(.+?)`/g, "<code>$1</code>");
-  return s;
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/__(.+?)__/g, "<u>$1</u>")
+      .replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "<i>$1</i>")
+      .replace(/~~(.+?)~~/g, "<s>$1</s>")
+      .replace(/`(.+?)`/g, "<code>$1</code>");
+
+  const out: string[] = [];
+  let quote: string[] = [];
+  const flushQuote = () => {
+    if (quote.length) {
+      out.push(`<blockquote>${quote.join("\n")}</blockquote>`);
+      quote = [];
+    }
+  };
+
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    // Horizontal rule (---, ***) → drop (Telegram can't render it).
+    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) {
+      flushQuote();
+      continue;
+    }
+    // Markdown table separator row (|---|:--:|) → drop.
+    if (line.includes("|") && /^\s*\|?[\s:|-]+\|?\s*$/.test(line)) {
+      flushQuote();
+      continue;
+    }
+    // Heading (#, ##, …) → bold line.
+    const h = line.match(/^\s*#{1,6}\s+(.+)$/);
+    if (h) {
+      flushQuote();
+      out.push(`<b>${inline(h[1]!)}</b>`);
+      continue;
+    }
+    // Blockquote line ("> …") → grouped into one <blockquote>.
+    const q = line.match(/^\s*>\s?(.*)$/);
+    if (q) {
+      quote.push(inline(q[1]!));
+      continue;
+    }
+    flushQuote();
+    // Table row "| a | b |" → de-pipe into spaced cells.
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const cells = line
+        .trim()
+        .replace(/^\||\|$/g, "")
+        .split("|")
+        .map((c) => inline(c.trim()))
+        .filter(Boolean);
+      out.push(cells.join("  "));
+      continue;
+    }
+    // Bullet ("- " / "* ") → "• ".
+    const b = line.match(/^(\s*)[-*]\s+(.+)$/);
+    if (b) {
+      out.push(`${b[1]}• ${inline(b[2]!)}`);
+      continue;
+    }
+    out.push(inline(line));
+  }
+  flushQuote();
+  return out.join("\n");
 }
 
 /** Send a tutor message with formatting; fall back to plain text if HTML fails. */
