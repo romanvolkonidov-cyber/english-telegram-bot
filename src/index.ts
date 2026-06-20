@@ -34,7 +34,6 @@ import {
   learnCommand,
   showTopics,
   showLessons,
-  showLanguageSetup,
   setTutorLanguage,
   startLesson,
   tutorNext,
@@ -117,7 +116,6 @@ bot.on("callback_query:data", async (ctx) => {
 
     // ── AI tutor navigation ──
     if (data === "learn" || data === "lrn:topics") return await showTopics(ctx);
-    if (data === "lrn:setup") return await showLanguageSetup(ctx);
     if (data === "lrn:lang:ru") return await setTutorLanguage(ctx, "Russian");
     if (data === "lrn:lang:en") return await setTutorLanguage(ctx, "English");
     if (data === "lrn:next") return await tutorNext(ctx);

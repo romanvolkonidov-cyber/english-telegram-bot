@@ -67,14 +67,15 @@ async function replyRich(
   }
 }
 
-/** Load the learner profile, creating it once with a sensible default if missing. */
+/** Load the learner profile. Default everyone to Russian help (most A1 students
+ *  need it); respect an explicit English/Russian choice once they make one. */
 async function ensureProfile(ctx: BotContext): Promise<LearnerProfile> {
   const id = telegramId(ctx);
   const existing = await getProfile(id).catch(() => null);
-  if (existing) return existing; // never overwrite a chosen language
+  if (existing?.langConfirmed) return existing;
   return upsertProfile(id, {
     name: ctx.session.name ?? ctx.from?.first_name,
-    nativeLanguage: ctx.session.lang === "ru" ? "Russian" : "English",
+    nativeLanguage: "Russian",
     level: "A1",
   });
 }
@@ -106,25 +107,8 @@ export async function learnCommand(ctx: BotContext): Promise<void> {
     );
     return;
   }
-  const profile = await ensureProfile(ctx);
-  if (!profile.langConfirmed) return await showLanguageSetup(ctx);
+  await ensureProfile(ctx);
   await showTopics(ctx);
-}
-
-/** Ask the learner whether they want bilingual (Russian) help or English-only. */
-export async function showLanguageSetup(ctx: BotContext): Promise<void> {
-  ctx.session.flow = undefined;
-  const kb = new InlineKeyboard()
-    .text("🇷🇺 Объяснять по-русски", "lrn:lang:ru")
-    .row()
-    .text("🇬🇧 English only", "lrn:lang:en");
-  await ctx.reply(
-    "🌐 <b>How should I help you?</b>\n" +
-      "Should I explain grammar and instructions in <b>Russian</b>, or keep everything in <b>English</b>? " +
-      "(Practice stays in English either way.)\n\n" +
-      "🌐 Объяснять грамматику и подсказки <b>по-русски</b> — или занимаемся полностью <b>на английском</b>?",
-    { parse_mode: "HTML", reply_markup: kb },
-  );
 }
 
 /** Store the learner's help-language choice, then show the topic list. */
@@ -140,7 +124,11 @@ export async function setTutorLanguage(
 
 export async function showTopics(ctx: BotContext): Promise<void> {
   ctx.session.flow = undefined; // leaving any running lesson
-  const progress = await getAllProgress(telegramId(ctx)).catch(() => []);
+  const id = telegramId(ctx);
+  const [progress, profile] = await Promise.all([
+    getAllProgress(id).catch(() => []),
+    getProfile(id).catch(() => null),
+  ]);
   const masteredByTopic = new Map<number, number>();
   for (const p of progress) {
     if (p.mastery >= 3) masteredByTopic.set(p.topicId, (masteredByTopic.get(p.topicId) ?? 0) + 1);
@@ -152,7 +140,10 @@ export async function showTopics(ctx: BotContext): Promise<void> {
     const tick = done >= topic.lessons.length ? "✅ " : "";
     kb.text(`${tick}${topic.id}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
   }
-  kb.text("🌐 Help language", "lrn:setup");
+  // Default is Russian help; offer a one-tap switch to English (and back).
+  const inEnglish = (profile?.nativeLanguage ?? "Russian").toLowerCase() === "english";
+  if (inEnglish) kb.text("🇷🇺 Объяснять по-русски", "lrn:lang:ru");
+  else kb.text("🇬🇧 Switch to English", "lrn:lang:en");
 
   await ctx.reply(
     "📚 <b>English A1 — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.",
