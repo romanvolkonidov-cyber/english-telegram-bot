@@ -515,12 +515,6 @@ async function speak(ctx: BotContext, text: string): Promise<boolean> {
   return false;
 }
 
-/** Show the on-screen text for a turn (the board + an optional reply hint). */
-async function showBoard(ctx: BotContext, board: string | null, hint: string): Promise<void> {
-  const md = [board, hint].filter(Boolean).join("\n\n");
-  if (md) await replyRich(ctx, md);
-}
-
 /** Render a tutor turn: speak it (primary), show text only when needed, set up next.
  *  `preImage`, when given, is a picture already generated upstream (a grounded
  *  picture task) — send those bytes instead of drawing a new one. */
@@ -600,18 +594,12 @@ async function renderReply(
     return;
   }
 
-  // Normal turn — show the board (if any). Only nudge to TYPE (voice is the default).
+  // Normal turn — just show the board (if any). The tutor's spoken message already
+  // tells the student exactly what to do, so we add NO generic "type/voice" hint
+  // (that was confusing — "reply with a voice message" with nothing to reply).
   flow.pendingQuiz = null;
-  const want: "voice" | "text" | "none" =
-    reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
-  flow.awaiting = want;
-  const hint =
-    want === "text"
-      ? tr(ctx, "⌨️ *Напиши ответ.*", "⌨️ *Type your answer.*")
-      : want === "voice"
-        ? tr(ctx, "🎤 *Ответь голосовым сообщением.*", "🎤 *Reply with a voice message.*")
-        : "";
-  await showBoard(ctx, reply.board, hint);
+  flow.awaiting = reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
+  if (reply.board) await replyRich(ctx, reply.board);
 }
 
 /**
