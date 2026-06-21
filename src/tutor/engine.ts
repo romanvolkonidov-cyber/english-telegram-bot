@@ -57,7 +57,9 @@ TEACHING STYLE
 | I | am | I am reading |
 
   Keep boards compact and clean — a short quote-box rule plus a small table or a few example lines is ideal.
-- VOICE FIRST for replies — speaking is the most important skill. MOST practice should have the student SAY their answer out loud (set "expect": "voice"), including grammar practice (e.g. «Скажи вслух предложение в Present Continuous про себя»). Use "expect": "text" only when the task is genuinely about writing — spelling a word, word order, or a written fill-in-the-blank. When in doubt, ask them to speak.
+- VOICE FIRST for replies — speaking is the most important skill. MOST practice should have the student SAY their answer out loud (set "expect": "voice"). If you set "expect":"voice", your "say" MUST contain a specific thing for them to say aloud (e.g. «Скажи вслух предложение про себя в Present Simple» or «Повтори за мной: I work»), NEVER just an explanation. Use "expect":"text" only for genuinely written tasks — spelling, word order, a written fill-in-the-blank — and "quiz" for multiple choice.
+- Do NOT tell the student HOW to reply — no «ответь голосом», «напиши», «нажми кнопку», "type", "reply with a voice message". The app shows the input method automatically. Just ask the question or give the task naturally, and put only ONE instruction in a turn (never both "type" and "speak").
+- EVERY turn must contain exactly ONE clear thing to do or answer RIGHT NOW — a question or a small task. Never end a turn with only an explanation; never leave the student wondering what to reply.
 - The student may answer by voice or text either way — accept whatever they send.
 
 THIS LESSON
@@ -68,18 +70,18 @@ HOW TO TEACH IT — follow this arc across several turns; do NOT skip to practic
 2. CHECK. Ask whether it's clear or if they have questions (e.g. "Понятно? Есть вопросы?"), and answer simply before moving on.
 3. PRACTICE — make it RICH, VARIED and PRACTICAL. There is NO fixed number of exercises: keep going until the student is genuinely solid on the goal. ROTATE exercise types so it never feels repetitive, and use real-life A1 sentences (ordering food, texting a friend, describing a photo, daily routine), not abstract drills. One exercise per turn; react to each answer, correct kindly, then give the next. Rotate among:
    • Multiple choice — use the "quiz" field (renders as tap-buttons).
-   • Fill the gap — a sentence with a blank in "board" (e.g. «She ___ (cook) dinner now.»); ask for the missing word(s).
+   • Fill the gap — a sentence with a blank in "board"; ask for the missing word(s). Make it a REAL task: if you put a verb in brackets, choose a subject/form where the answer DIFFERS from the bracketed word (third-person -s «She ___ (live)» → lives; a negative «He ___ (not / like)» → doesn't like; an irregular past «I ___ (go) yesterday» → went). NEVER make a gap whose answer is simply the word already in brackets (e.g. «They ___ (live)» → "live") — that is trivial copying, not practice.
    • Unscramble — jumbled words in "board" (e.g. «cooking / is / she / dinner»); ask them to put them in order.
    • Picture task — set "image" to a real-life scene AND set "imageAsk": true. The bot draws it, shows it to YOU, and THEN you ask the student about what is ACTUALLY in the picture — to describe it using the words/grammar they've learned, or via a multiple-choice grounded in it. Keep "say" a brief lead-in here (e.g. «Посмотри на картинку…»); you'll ask the real question once you see it.
-   • Listening — put a SHORT English mini-monologue or dialogue in "say" so it is HEARD, not shown (English only; do NOT repeat it in "board"), then ask a question about what they heard.
+   • Listening — ONLY when the words to hear live in "say" (spoken) and appear NOWHERE in writing: put a SHORT English line or mini-dialogue in "say" (English only; do NOT repeat it in "board" or in quiz options), then ask about it. If the sentences are written anywhere (in "board" or as quiz options), it is NOT a listening task — never say «послушай»/"listen"; say «прочитай и выбери»/"read and choose".
    • Reading — a 2–4 sentence paragraph in "board", then a question about it.
    • Free production — they say their own real sentences out loud.
    Default answers to SPEAKING (expect "voice"); use "text" only for fill-the-gap / unscramble / spelling, and "quiz" for multiple choice.
    ADAPT to performance: when the student gets something wrong, gently correct it and give ANOTHER exercise of the SAME type (then a similar one) until they get it right before moving on — spend extra time on whatever is hard, and move quickly past what they've clearly mastered. Reflect this in "masteryDelta" (negative on a miss, positive on a clean answer).
 4. Finish only when the student can do every part of the goal correctly and consistently — including the types they struggled with at first. Give the student plenty of room to make mistakes (around ten is completely normal): each time, re-explain simply and give another of the same type until they get it. If they're still struggling after a lot of practice (roughly 30+ exchanges), don't loop forever: consolidate the key point, praise their effort, set "lessonComplete": true, and suggest doing this lesson again next time.
-Present the full explanation first; never ask the student to produce the target before you've taught it. End EVERY turn with a clear next step — a question, a check ("Понятно? Готов попробовать?"), or a small task — and set "expect" so the student knows whether to speak or type. Never leave them unsure what to do next.
+Present the full explanation first; never ask the student to produce the target before you've taught it. End EVERY turn with a clear next step — a question, a check ("Понятно? Готов попробовать?"), or a small task — and set "expect" accordingly (the app shows the input mode; don't describe it in words). Never leave them unsure what to do next.
 
-OUTPUT — respond with ONLY a JSON object (no markdown, no code fences, no text outside it):
+OUTPUT — respond with ONLY a raw JSON object: no code fences, no \`\`\`, no text before or after it. It MUST be valid JSON — inside every string value write any line break as \\n (escaped); NEVER put a real line break inside a string value (real line breaks corrupt the message). For example, a board with a table is one string: "board": "**Present Simple**\\n\\n| Subject | Verb |\\n|---|---|\\n| I | work |".
 {
   "say": string,                 // what you SAY OUT LOUD (becomes a voice message). Natural spoken language, no markdown. Speak any correction of the student here, kindly.
   "board": string | null,         // text to SHOW on screen — the English word/sentence to read, or a written-exercise prompt. null on pure speaking turns. Keep it short.
@@ -101,61 +103,117 @@ function toMessages(history: TutorTurn[]): ClaudeMessage[] {
   }));
 }
 
-/** Pull a JSON object out of the model's reply, tolerating stray text/fences. */
-function parseReply(raw: string): TutorReply {
-  let text = raw.trim();
-  // Strip code fences if the model added them despite instructions.
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) text = fence[1]!.trim();
-  // Otherwise grab the outermost braces.
-  if (!text.startsWith("{")) {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start !== -1 && end > start) text = text.slice(start, end + 1);
+/** True if a string is actually a leaked JSON object rather than spoken text. */
+function looksLikeJson(s: string | null): boolean {
+  if (!s) return false;
+  const t = s.trimStart();
+  return t.startsWith("{") && /"(say|board|expect|masteryDelta|lessonComplete)"\s*:/.test(t);
+}
+
+function unescapeJson(s: string): string {
+  return s
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\r/g, "")
+    .replace(/\\"/g, '"')
+    .replace(/\\\//g, "/")
+    .replace(/\\\\/g, "\\");
+}
+
+/** Pull one `"key": "value"` string field out of a JSON-ish blob, tolerating
+ *  literal newlines inside the value (which break strict JSON.parse). */
+function salvageString(blob: string, key: string): string | null {
+  const m = blob.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+  const v = m ? unescapeJson(m[1]!).trim() : "";
+  return v ? v : null;
+}
+
+/** Pull a candidate JSON object out of the model's reply (strip fences / prose). */
+function extractJsonCandidate(raw: string): string {
+  let t = raw.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1]!.trim();
+  if (!t.startsWith("{")) {
+    const start = t.indexOf("{");
+    const end = t.lastIndexOf("}");
+    if (start !== -1 && end > start) t = t.slice(start, end + 1);
+  }
+  return t;
+}
+
+/**
+ * Turn the model's reply into a TutorReply. Robust by design: the model often
+ * emits multi-line `board` values with real line breaks (invalid JSON) or gets
+ * truncated, so strict JSON.parse fails — in that case we salvage each field by
+ * regex. A leaked raw-JSON blob is NEVER shown/spoken to the student.
+ */
+function parseReply(raw: string, native: string): TutorReply {
+  const candidate = extractJsonCandidate(raw);
+  let obj: Partial<TutorReply> | null = null;
+  try {
+    obj = JSON.parse(candidate) as Partial<TutorReply>;
+  } catch {
+    obj = null;
   }
 
-  try {
-    const obj = JSON.parse(text) as Partial<TutorReply>;
-    const quiz =
-      obj.quiz &&
-      typeof obj.quiz.question === "string" &&
-      Array.isArray(obj.quiz.options) &&
-      obj.quiz.options.length >= 2
-        ? {
-            question: obj.quiz.question,
-            options: obj.quiz.options.slice(0, 4).map(String),
-            correctIndex: Math.max(
-              0,
-              Math.min(obj.quiz.options.length - 1, Number(obj.quiz.correctIndex) || 0),
-            ),
-            explain: typeof obj.quiz.explain === "string" ? obj.quiz.explain : "",
-          }
-        : null;
-    const image =
-      typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null;
-    return {
-      say: typeof obj.say === "string" && obj.say.trim() ? obj.say.trim() : raw.trim(),
-      board: typeof obj.board === "string" && obj.board.trim() ? obj.board.trim() : null,
-      image,
-      imageAsk: Boolean(obj.imageAsk) && image !== null,
-      quiz,
-      expect: quiz ? "quiz" : obj.expect === "text" ? "text" : "voice",
-      masteryDelta: Number.isFinite(obj.masteryDelta as number) ? Number(obj.masteryDelta) : 0,
-      lessonComplete: Boolean(obj.lessonComplete),
-    };
-  } catch {
-    // Not valid JSON — fall back to treating the whole thing as the message.
-    return {
-      say: raw.trim(),
-      board: null,
-      image: null,
-      imageAsk: false,
-      quiz: null,
-      expect: "voice",
-      masteryDelta: 0,
-      lessonComplete: false,
-    };
-  }
+  const sayStr =
+    (obj && typeof obj.say === "string" && obj.say.trim() ? obj.say.trim() : null) ??
+    salvageString(candidate, "say") ??
+    salvageString(raw, "say");
+  const boardStr =
+    (obj && typeof obj.board === "string" && obj.board.trim() ? obj.board.trim() : null) ??
+    salvageString(candidate, "board");
+  const imageStr =
+    (obj && typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null) ??
+    salvageString(candidate, "image");
+
+  const quiz =
+    obj?.quiz &&
+    typeof obj.quiz.question === "string" &&
+    Array.isArray(obj.quiz.options) &&
+    obj.quiz.options.length >= 2
+      ? {
+          question: obj.quiz.question,
+          options: obj.quiz.options.slice(0, 4).map(String),
+          correctIndex: Math.max(
+            0,
+            Math.min(obj.quiz.options.length - 1, Number(obj.quiz.correctIndex) || 0),
+          ),
+          explain: typeof obj.quiz.explain === "string" ? obj.quiz.explain : "",
+        }
+      : null;
+
+  const expectRaw =
+    (obj && typeof obj.expect === "string" ? obj.expect : null) ??
+    raw.match(/"expect"\s*:\s*"(voice|text|quiz)"/)?.[1] ??
+    null;
+  const masteryDelta =
+    obj && Number.isFinite(obj.masteryDelta as number)
+      ? Number(obj.masteryDelta)
+      : Number(raw.match(/"masteryDelta"\s*:\s*(-?\d+(?:\.\d+)?)/)?.[1] ?? 0);
+  const lessonComplete =
+    obj && typeof obj.lessonComplete === "boolean"
+      ? obj.lessonComplete
+      : /"lessonComplete"\s*:\s*true/.test(raw);
+
+  const image = looksLikeJson(imageStr) ? null : imageStr;
+  const board = looksLikeJson(boardStr) ? null : boardStr;
+  const fallback =
+    native.toLowerCase() === "english"
+      ? "One sec — let's try that again. Could you repeat your last answer?"
+      : "Секундочку, давай ещё раз. Повтори, пожалуйста, свой ответ.";
+  const say = !sayStr || looksLikeJson(sayStr) ? fallback : sayStr;
+
+  return {
+    say,
+    board,
+    image,
+    imageAsk: (obj ? Boolean(obj.imageAsk) : /"imageAsk"\s*:\s*true/.test(raw)) && image !== null,
+    quiz,
+    expect: quiz ? "quiz" : expectRaw === "text" ? "text" : "voice",
+    masteryDelta,
+    lessonComplete,
+  };
 }
 
 /** Reply plus the real USD cost of producing it (for wallet metering). */
@@ -178,12 +236,12 @@ export async function getTutorReply(
   const result = await callClaude({
     system: buildSystemPrompt(profile, lesson),
     messages,
-    maxTokens: 900,
+    maxTokens: 1200,
     temperature: 0.6,
     cacheSystem: true,
   });
   if (!result) return null;
-  return { reply: parseReply(result.text), costUsd: result.costUsd };
+  return { reply: parseReply(result.text, profile.nativeLanguage || "Russian"), costUsd: result.costUsd };
 }
 
 /**
@@ -225,12 +283,12 @@ export async function describeImageTurn(
   const result = await callClaude({
     system: buildSystemPrompt(profile, lesson),
     messages,
-    maxTokens: 700,
+    maxTokens: 900,
     temperature: 0.5,
     cacheSystem: true,
   });
   if (!result) return null;
-  const reply = parseReply(result.text);
+  const reply = parseReply(result.text, profile.nativeLanguage || "Russian");
   // The picture is already on screen; never re-trigger generation from this turn.
   reply.image = null;
   reply.imageAsk = false;
