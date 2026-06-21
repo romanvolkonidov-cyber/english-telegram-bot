@@ -242,9 +242,10 @@ export async function learnCommand(ctx: BotContext): Promise<void> {
 export async function showTopics(ctx: BotContext, level: CEFRLevel = "A1"): Promise<void> {
   ctx.session.flow = undefined; // leaving any running lesson
   const id = telegramId(ctx);
+  const isAdmin = ctx.session.role === "teacher";
   const [progress, wallet] = await Promise.all([
     getAllProgress(id).catch(() => []),
-    getWallet(id).catch(() => null),
+    isAdmin ? Promise.resolve(null) : getWallet(id).catch(() => null),
   ]);
   const masteredByTopic = new Map<number, number>();
   for (const p of progress) {
@@ -263,24 +264,28 @@ export async function showTopics(ctx: BotContext, level: CEFRLevel = "A1"): Prom
     .text(`${level === "A2" ? "🔵 " : ""}A2`, "lrn:lvl:A2")
     .row();
 
-  // Wallet line: free first lesson, or remaining balance as "≈ N lessons".
-  const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
-  const walletLine =
-    FREE_TRIAL_ENABLED && !wallet?.freeLessonUsed
-      ? tr(ctx, "🎁 <b>Первый урок бесплатно!</b>", "🎁 <b>First lesson is free!</b>")
-      : tr(
-          ctx,
-          `💎 На балансе: <b>≈ ${balanceLessons} ур.</b>`,
-          `💎 Balance: <b>≈ ${balanceLessons} lessons</b>`,
-        );
-  kb.text(tr(ctx, "💎 Купить уроки", "💎 Buy lessons"), "lrn:buy").row();
+  // Wallet line and buy button: hidden for admin (teacher).
+  let walletLine = "";
+  if (!isAdmin) {
+    const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
+    walletLine =
+      FREE_TRIAL_ENABLED && !wallet?.freeLessonUsed
+        ? tr(ctx, "🎁 <b>Первый урок бесплатно!</b>", "🎁 <b>First lesson is free!</b>")
+        : tr(
+            ctx,
+            `💎 На балансе: <b>≈ ${balanceLessons} ур.</b>`,
+            `💎 Balance: <b>≈ ${balanceLessons} lessons</b>`,
+          );
+    kb.text(tr(ctx, "💎 Купить уроки", "💎 Buy lessons"), "lrn:buy").row();
+  }
 
   const header = tr(
     ctx,
     `📚 <b>Английский ${level} — выбери тему</b>\nИдём шаг за шагом. Нажми тему, затем урок.`,
     `📚 <b>English ${level} — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.`,
   );
-  await ctx.reply(`${header}\n\n${walletLine}`, { parse_mode: "HTML", reply_markup: kb });
+  const fullText = walletLine ? `${header}\n\n${walletLine}` : header;
+  await ctx.reply(fullText, { parse_mode: "HTML", reply_markup: kb });
 }
 
 export async function showLessons(ctx: BotContext, topicId: number): Promise<void> {
@@ -318,10 +323,12 @@ export async function startLesson(
   if (!lesson || !topic) return await showTopics(ctx);
 
   // Wallet check: the first lesson ever is free; after that a lesson needs balance.
+  // Admin (teacher) can start lessons without payment.
   const id = telegramId(ctx);
   const wallet = await getWallet(id).catch(() => null);
-  const free = FREE_TRIAL_ENABLED && !wallet?.freeLessonUsed;
-  if (!free && (wallet?.balanceUsd ?? 0) <= 0) {
+  const isAdmin = ctx.session.role === "teacher";
+  const free = isAdmin || (FREE_TRIAL_ENABLED && !wallet?.freeLessonUsed);
+  if (!isAdmin && !free && (wallet?.balanceUsd ?? 0) <= 0) {
     // Free trial spent and balance empty — student must top up before starting.
     return await showBuyMenu(ctx, "no_balance");
   }
