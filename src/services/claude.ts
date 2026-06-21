@@ -1,12 +1,12 @@
 import { config, hasAnthropic, hasBedrock, hasClaudeAWS } from "../config.js";
+import { claudeCostUsd } from "../tutor/pricing.js";
 
 /**
- * Client for talking to Claude (the /learn AI tutor). Supports two backends and
- * picks whichever is configured:
- *   1. Amazon Bedrock ("Claude on AWS") — a bearer-token API key, model id in
- *      the URL, `anthropic_version: "bedrock-2023-05-31"` in the body.
- *   2. The direct Anthropic API — `x-api-key`, model in the body, prompt caching.
- * Raw fetch either way, so no SDK dependency (mirrors services/gemini.ts).
+ * Client for talking to Claude (the /learn AI tutor). Picks whichever backend is
+ * configured — Claude Platform on AWS, Amazon Bedrock, or the direct Anthropic
+ * API — and returns the reply text plus the real USD cost of the call (from the
+ * response usage), so the tutor can meter spend against the student's wallet.
+ * Raw fetch throughout, so no SDK dependency (mirrors services/gemini.ts).
  */
 
 export interface ClaudeMessage {
@@ -19,21 +19,43 @@ export interface ClaudeCall {
   messages: ClaudeMessage[];
   maxTokens?: number;
   temperature?: number;
-  /** Cache the (large, stable) system prompt — direct Anthropic API only. */
+  /** Cache the (large, stable) system prompt — supported on Anthropic & AWS. */
   cacheSystem?: boolean;
 }
 
-/** Pull the text out of a Messages-API response body (same shape on both backends). */
-function extractText(data: unknown): string | null {
-  const blocks = (data as { content?: { type: string; text?: string }[] }).content ?? [];
-  const text = blocks
-    .filter((b) => b.type === "text")
-    .map((b) => b.text ?? "")
-    .join("");
-  return text.trim() || null;
+export interface ClaudeResult {
+  text: string;
+  costUsd: number;
 }
 
-async function callBedrock(opts: ClaudeCall): Promise<string | null> {
+/** Parse a Messages-API response body (same shape on every backend). */
+function parseResult(data: unknown): ClaudeResult | null {
+  const d = data as {
+    content?: { type: string; text?: string }[];
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
+  };
+  const text = (d.content ?? [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text ?? "")
+    .join("")
+    .trim();
+  if (!text) return null;
+  const u = d.usage ?? {};
+  const costUsd = claudeCostUsd({
+    input: u.input_tokens,
+    output: u.output_tokens,
+    cacheRead: u.cache_read_input_tokens,
+    cacheWrite: u.cache_creation_input_tokens,
+  });
+  return { text, costUsd };
+}
+
+async function callBedrock(opts: ClaudeCall): Promise<ClaudeResult | null> {
   if (!config.bedrockModelId) {
     console.error("Bedrock is configured but BEDROCK_MODEL_ID is empty.");
     return null;
@@ -62,18 +84,17 @@ async function callBedrock(opts: ClaudeCall): Promise<string | null> {
       console.error("Bedrock API error:", res.status, await res.text());
       return null;
     }
-    return extractText(await res.json());
+    return parseResult(await res.json());
   } catch (err) {
     console.error("callBedrock error:", err);
     return null;
   }
 }
 
-async function callAnthropic(opts: ClaudeCall): Promise<string | null> {
+async function callAnthropic(opts: ClaudeCall): Promise<ClaudeResult | null> {
   const system = opts.cacheSystem
     ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
     : opts.system;
-
   const body: Record<string, unknown> = {
     model: config.claudeModel,
     max_tokens: opts.maxTokens ?? 1024,
@@ -81,7 +102,6 @@ async function callAnthropic(opts: ClaudeCall): Promise<string | null> {
     system,
     messages: opts.messages,
   };
-
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -96,18 +116,17 @@ async function callAnthropic(opts: ClaudeCall): Promise<string | null> {
       console.error("Claude API error:", res.status, await res.text());
       return null;
     }
-    return extractText(await res.json());
+    return parseResult(await res.json());
   } catch (err) {
     console.error("callClaude error:", err);
     return null;
   }
 }
 
-async function callClaudeAWS(opts: ClaudeCall): Promise<string | null> {
+async function callClaudeAWS(opts: ClaudeCall): Promise<ClaudeResult | null> {
   const system = opts.cacheSystem
     ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
     : opts.system;
-
   const body: Record<string, unknown> = {
     model: config.claudeModel, // bare first-party id, e.g. claude-sonnet-4-6
     max_tokens: opts.maxTokens ?? 1024,
@@ -115,7 +134,6 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<string | null> {
     system,
     messages: opts.messages,
   };
-
   const url = `https://aws-external-anthropic.${config.awsRegion}.api.aws/v1/messages`;
   try {
     const res = await fetch(url, {
@@ -132,7 +150,7 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<string | null> {
       console.error("Claude (AWS) API error:", res.status, await res.text());
       return null;
     }
-    return extractText(await res.json());
+    return parseResult(await res.json());
   } catch (err) {
     console.error("callClaudeAWS error:", err);
     return null;
@@ -140,7 +158,7 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<string | null> {
 }
 
 /** Send a request to whichever Claude backend is configured. */
-export async function callClaude(opts: ClaudeCall): Promise<string | null> {
+export async function callClaude(opts: ClaudeCall): Promise<ClaudeResult | null> {
   if (hasClaudeAWS) return callClaudeAWS(opts);
   if (hasBedrock) return callBedrock(opts);
   if (hasAnthropic) return callAnthropic(opts);

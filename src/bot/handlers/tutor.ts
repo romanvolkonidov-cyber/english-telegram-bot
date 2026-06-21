@@ -16,11 +16,13 @@ import {
   upsertProfile,
   getProfile,
 } from "../../tutor/learnerModel.js";
-import { getTutorReply, nextMastery } from "../../tutor/engine.js";
-import type { LearnerProfile, LessonContext, TutorReply } from "../../tutor/types.js";
+import { getTutorReply, nextMastery, type TutorTurnResult } from "../../tutor/engine.js";
+import type { LearnerProfile, LessonContext } from "../../tutor/types.js";
 import { downloadTelegramFile, toBase64 } from "../../services/voice.js";
 import { transcribeSpeech } from "../../services/gemini.js";
 import { synthesizeSpeech, generateImage } from "../../services/media.js";
+import { getWallet, debit, creditAllowance, markFreeLessonUsed } from "../../tutor/wallet.js";
+import { PACKAGES, packageById, approxLessons, MEDIA_COST_USD } from "../../tutor/pricing.js";
 
 type TutorFlow = Extract<Flow, { kind: "tutor" }>;
 
@@ -233,9 +235,10 @@ export async function setTutorLanguage(
 export async function showTopics(ctx: BotContext): Promise<void> {
   ctx.session.flow = undefined; // leaving any running lesson
   const id = telegramId(ctx);
-  const [progress, profile] = await Promise.all([
+  const [progress, profile, wallet] = await Promise.all([
     getAllProgress(id).catch(() => []),
     getProfile(id).catch(() => null),
+    getWallet(id).catch(() => null),
   ]);
   const masteredByTopic = new Map<number, number>();
   for (const p of progress) {
@@ -248,13 +251,20 @@ export async function showTopics(ctx: BotContext): Promise<void> {
     const tick = done >= topic.lessons.length ? "✅ " : "";
     kb.text(`${tick}${topic.id}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
   }
+  // Wallet line: free first lesson, or remaining balance as "≈ N lessons".
+  const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
+  const walletLine = !wallet?.freeLessonUsed
+    ? "🎁 <b>Первый урок бесплатно!</b>"
+    : `💎 На балансе: <b>≈ ${balanceLessons} ур.</b>`;
+  kb.text("💎 Купить уроки", "lrn:buy").row();
+
   // Default is Russian help; offer a one-tap switch to English (and back).
   const inEnglish = (profile?.nativeLanguage ?? "Russian").toLowerCase() === "english";
   if (inEnglish) kb.text("🇷🇺 Объяснять по-русски", "lrn:lang:ru");
   else kb.text("🇬🇧 Switch to English", "lrn:lang:en");
 
   await ctx.reply(
-    "📚 <b>English A1 — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.",
+    `📚 <b>English A1 — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.\n\n${walletLine}`,
     { parse_mode: "HTML", reply_markup: kb },
   );
 }
@@ -293,7 +303,16 @@ export async function startLesson(
   const topic = getTopic(topicId);
   if (!lesson || !topic) return await showTopics(ctx);
 
-  const prev = await getLessonProgress(telegramId(ctx), topicId, lessonId).catch(() => null);
+  // Wallet check: the first lesson ever is free; after that a lesson needs balance.
+  const id = telegramId(ctx);
+  const wallet = await getWallet(id).catch(() => null);
+  const free = !wallet?.freeLessonUsed;
+  if (!free && (wallet?.balanceUsd ?? 0) <= 0) {
+    // Free trial spent and balance empty — student must top up before starting.
+    return await showBuyMenu(ctx, "no_balance");
+  }
+
+  const prev = await getLessonProgress(id, topicId, lessonId).catch(() => null);
   const startMastery = Math.max(1, prev?.mastery ?? 0) as 1 | 2 | 3;
 
   ctx.session.flow = {
@@ -304,11 +323,17 @@ export async function startLesson(
     history: [],
     pendingQuiz: null,
     awaiting: "none",
+    free,
+    lessonCostUsd: 0,
   };
-  await setLessonMastery(telegramId(ctx), topicId, lessonId, startMastery).catch(() => {});
+  await setLessonMastery(id, topicId, lessonId, startMastery).catch(() => {});
+  if (free) await markFreeLessonUsed(id).catch(() => {});
 
+  const note = free
+    ? "🎁 <i>Первый урок — бесплатно!</i>"
+    : `💎 <i>На балансе: ≈ ${approxLessons(wallet?.balanceUsd ?? 0)} ур.</i>`;
   await ctx.reply(
-    `▶️ <b>${esc(topic.title)} — ${esc(lesson.title)}</b>\n🎯 <i>${esc(lesson.canDo)}</i>`,
+    `▶️ <b>${esc(topic.title)} — ${esc(lesson.title)}</b>\n🎯 <i>${esc(lesson.canDo)}</i>\n${note}`,
     { parse_mode: "HTML" },
   );
   await think(ctx);
@@ -327,8 +352,8 @@ async function think(ctx: BotContext): Promise<void> {
   }
 }
 
-/** Generate and send an illustrative picture (best-effort; silent on failure). */
-async function sendImage(ctx: BotContext, prompt: string): Promise<void> {
+/** Generate and send an illustrative picture. Returns true if one was sent. */
+async function sendImage(ctx: BotContext, prompt: string): Promise<boolean> {
   try {
     await ctx.replyWithChatAction("upload_photo");
   } catch {
@@ -336,10 +361,52 @@ async function sendImage(ctx: BotContext, prompt: string): Promise<void> {
   }
   try {
     const img = await generateImage(prompt);
-    if (img) await ctx.replyWithPhoto(new InputFile(img, "vocab.png"));
+    if (img) {
+      await ctx.replyWithPhoto(new InputFile(img, "vocab.png"));
+      return true;
+    }
   } catch (err) {
     console.error("tutor image failed:", err);
   }
+  return false;
+}
+
+/** Add some real API cost to the running lesson tally and debit the wallet
+ *  (unless this is the free trial lesson). The single source of truth for spend. */
+async function chargeUsd(
+  ctx: BotContext,
+  flow: TutorFlow,
+  usd: number,
+  label: string,
+): Promise<void> {
+  if (usd <= 0) return;
+  flow.lessonCostUsd = Math.round((flow.lessonCostUsd + usd) * 1e4) / 1e4;
+  console.log(
+    `[tutor] ${label} $${usd.toFixed(4)} | lesson $${flow.lessonCostUsd.toFixed(4)} | free=${flow.free}`,
+  );
+  if (!flow.free) await debit(telegramId(ctx), usd).catch(() => {});
+}
+
+/** Charge for one tutor turn: Claude tokens + (if produced) a voice note and a picture. */
+async function meterTurn(
+  ctx: BotContext,
+  flow: TutorFlow,
+  claudeUsd: number,
+  spoke: boolean,
+  imageSent: boolean,
+): Promise<void> {
+  const cost =
+    claudeUsd + (spoke ? MEDIA_COST_USD.tts : 0) + (imageSent ? MEDIA_COST_USD.image : 0);
+  await chargeUsd(ctx, flow, cost, "turn");
+}
+
+/** Can this lesson keep spending? Free lessons always can; otherwise need balance. */
+async function gate(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
+  if (flow.free) return true;
+  const w = await getWallet(telegramId(ctx)).catch(() => null);
+  if (w && w.balanceUsd > 0) return true;
+  await showBuyMenu(ctx, "no_balance");
+  return false;
 }
 
 /** Speak text as a voice note (the primary channel). Returns true if sent. */
@@ -369,14 +436,15 @@ async function showBoard(ctx: BotContext, board: string | null, hint: string): P
 }
 
 /** Render a tutor turn: speak it (primary), show text only when needed, set up next. */
-async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<void> {
+async function renderReply(ctx: BotContext, result: TutorTurnResult | null): Promise<void> {
   const flow = tutorFlow(ctx);
   if (!flow) return;
 
-  if (!reply) {
+  if (!result) {
     await ctx.reply("⚠️ I had trouble reaching the tutor. Try again in a moment, or /menu to exit.");
     return;
   }
+  const reply = result.reply;
 
   // Update mastery from this turn.
   const updated = nextMastery(flow.mastery, reply.masteryDelta, reply.lessonComplete);
@@ -390,9 +458,12 @@ async function renderReply(ctx: BotContext, reply: TutorReply | null): Promise<v
   });
 
   // Optional picture, then SPEAK (primary). Fall back to text only if voice fails.
-  if (reply.image) await sendImage(ctx, reply.image);
+  const imgSent = reply.image ? await sendImage(ctx, reply.image) : false;
   const spoke = await speak(ctx, reply.say);
   if (!spoke) await replyRich(ctx, reply.say);
+
+  // Meter the real cost of everything we just produced (Claude + voice + picture).
+  await meterTurn(ctx, flow, result.costUsd, spoke, imgSent);
 
   // Lesson finished.
   if (reply.lessonComplete) {
@@ -441,6 +512,7 @@ export async function tutorOnText(ctx: BotContext, text: string): Promise<void> 
     await ctx.reply("👆 Tap one of the answer buttons above (or /menu to leave the lesson).");
     return;
   }
+  if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
   flow.history.push({ role: "student", text: text.trim() });
   await think(ctx);
   const profile = await ensureProfile(ctx);
@@ -464,6 +536,7 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
     );
     return;
   }
+  if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
 
   await think(ctx);
   let transcript: string | null = null;
@@ -481,6 +554,7 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
     await ctx.reply("🎧 I couldn't quite catch that. Could you say it again, or type it?");
     return;
   }
+  await chargeUsd(ctx, flow, MEDIA_COST_USD.stt, "stt"); // we transcribed their voice
 
   flow.history.push({ role: "student", text: `[spoken aloud] ${transcript}` });
   const profile = await ensureProfile(ctx);
@@ -519,6 +593,7 @@ export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promis
     text: `I answered the quiz "${quiz.question}" with "${chosen}" — that was ${correct ? "correct" : "incorrect"}.`,
   });
 
+  if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
   await think(ctx);
   const profile = await ensureProfile(ctx);
   const lesson = getLesson(flow.topicId, flow.lessonId);
@@ -537,4 +612,96 @@ export async function tutorNext(ctx: BotContext): Promise<void> {
     return await showTopics(ctx);
   }
   await startLesson(ctx, next.topicId, next.lessonId);
+}
+
+// ── Stars wallet: buying lessons ──────────────────────────────────────────────
+
+const BUY_BLURB =
+  "🎧 Живой ИИ-репетитор: говорит голосом, показывает картинки и подстраивается под тебя. " +
+  "Звёзды списываются только за реально проведённое время — остаток не сгорает.";
+
+/**
+ * Show the top-up menu: a single lesson OR a discounted package, with the
+ * current balance (as "≈ N lessons") and the per-lesson price for each option.
+ * Shown when the balance runs out mid-lesson ("no_balance") or on request ("menu").
+ */
+export async function showBuyMenu(
+  ctx: BotContext,
+  reason: "no_balance" | "menu",
+): Promise<void> {
+  const wallet = await getWallet(telegramId(ctx)).catch(() => null);
+  const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
+
+  const lead =
+    reason === "no_balance"
+      ? "⏸️ <b>Звёзды закончились — урок на паузе.</b>\nДобавь звёзды, и продолжим с того же места."
+      : "💎 <b>Уроки английского за звёзды</b>";
+
+  // Find the cheapest per-lesson price so we can flag the best deal.
+  const perLessonOf = (p: (typeof PACKAGES)[number]) =>
+    Math.round(p.stars / Math.max(1, approxLessons(p.allowanceUsd)));
+  const cheapest = Math.min(...PACKAGES.map(perLessonOf));
+
+  const lines = [lead, "", BUY_BLURB, "", `📊 Сейчас на балансе: <b>≈ ${balanceLessons} ур.</b>`, ""];
+  const kb = new InlineKeyboard();
+  for (const p of PACKAGES) {
+    const lessons = Math.max(1, approxLessons(p.allowanceUsd));
+    const perLesson = perLessonOf(p);
+    const flag = p.id !== "single" && perLesson === cheapest ? " 🔥" : "";
+    lines.push(
+      `• <b>${esc(p.title)}</b> — ${p.stars} ⭐  (≈ ${lessons} ур., ${perLesson} ⭐/урок)${flag}`,
+    );
+    const icon = p.id === "single" ? "🎟" : "📦";
+    kb.text(`${icon} ${lessons} ур · ${p.stars} ⭐`, `buy:${p.id}`).row();
+  }
+  lines.push("", "💡 Чем больше пакет — тем дешевле каждый урок.");
+  kb.text("⬅️ Назад к темам", "lrn:topics");
+
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: kb });
+}
+
+/** Send a Telegram Stars invoice for the chosen package. */
+export async function startPurchase(ctx: BotContext, pkgId: string): Promise<void> {
+  const pkg = packageById(pkgId);
+  const chatId = ctx.chat?.id;
+  if (!pkg || !chatId) return;
+  const lessons = Math.max(1, approxLessons(pkg.allowanceUsd));
+  try {
+    await ctx.api.raw.sendInvoice({
+      chat_id: chatId,
+      title: pkg.title,
+      description:
+        `≈ ${lessons} уроков английского с ИИ-репетитором — голос, картинки, адаптивно. ` +
+        "Звёзды тратятся по мере занятий, остаток сохраняется.",
+      payload: `pkg_${pkg.id}`,
+      provider_token: "", // empty = Telegram Stars
+      currency: "XTR",
+      prices: [{ label: pkg.title, amount: pkg.stars }],
+    });
+  } catch (err) {
+    console.error("sendInvoice failed:", err);
+    await ctx.reply("⚠️ Не получилось открыть оплату. Попробуй ещё раз чуть позже.");
+  }
+}
+
+/** Credit the wallet after a successful Stars payment, then invite them to continue. */
+export async function handleSuccessfulPayment(ctx: BotContext): Promise<void> {
+  const sp = ctx.message?.successful_payment;
+  if (!sp) return;
+  const payload = sp.invoice_payload || "";
+  const pkgId = payload.startsWith("pkg_") ? payload.slice(4) : payload;
+  const pkg = packageById(pkgId);
+  if (!pkg) {
+    await ctx.reply("✅ Оплата получена, спасибо!");
+    return;
+  }
+  const wallet = await creditAllowance(telegramId(ctx), pkg.allowanceUsd).catch(() => null);
+  const lessons = approxLessons(wallet?.balanceUsd ?? pkg.allowanceUsd);
+  const tail = tutorFlow(ctx)
+    ? "Продолжаем урок — просто отправь свой ответ 🎤"
+    : "Выбери тему и начнём! /learn";
+  await ctx.reply(
+    `✅ <b>Готово! Баланс пополнен.</b>\n💎 Теперь у тебя ≈ <b>${lessons} ур.</b>\n\n${tail}`,
+    { parse_mode: "HTML" },
+  );
 }

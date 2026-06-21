@@ -40,6 +40,9 @@ import {
   tutorOnText,
   tutorOnVoice,
   tutorQuizAnswer,
+  showBuyMenu,
+  startPurchase,
+  handleSuccessfulPayment,
 } from "./bot/handlers/tutor.js";
 
 const bot = new Bot<BotContext>(config.botToken);
@@ -119,6 +122,8 @@ bot.on("callback_query:data", async (ctx) => {
     if (data === "lrn:lang:ru") return await setTutorLanguage(ctx, "Russian");
     if (data === "lrn:lang:en") return await setTutorLanguage(ctx, "English");
     if (data === "lrn:next") return await tutorNext(ctx);
+    if (data === "lrn:buy") return await showBuyMenu(ctx, "menu");
+    if (data.startsWith("buy:")) return await startPurchase(ctx, data.slice("buy:".length));
     if (data.startsWith("lrn:t:")) return await showLessons(ctx, Number(data.slice("lrn:t:".length)));
     if (data.startsWith("lrn:l:")) {
       const rest = data.slice("lrn:l:".length); // "<topicId>:<lessonId>"
@@ -178,6 +183,17 @@ const onVoice = async (ctx: BotContext) => {
 };
 bot.on("message:voice", onVoice);
 bot.on("message:audio", onVoice);
+
+// ── Telegram Stars payments (AI tutor wallet) ──
+// Approve every pre-checkout (we sell a fixed digital good); credit on success.
+bot.on("pre_checkout_query", async (ctx) => {
+  try {
+    await ctx.answerPreCheckoutQuery(true);
+  } catch (err) {
+    console.error("answerPreCheckoutQuery failed:", err);
+  }
+});
+bot.on("message:successful_payment", handleSuccessfulPayment);
 
 bot.catch((err) => {
   console.error("Bot error while handling update:", err.error);

@@ -30,6 +30,10 @@ export type Flow =
       pendingQuiz?: PendingQuiz | null;
       /** What the bot is waiting for from the student. */
       awaiting: "voice" | "text" | "quiz" | "none";
+      /** True if this lesson is the free trial (not metered against the wallet). */
+      free: boolean;
+      /** Accumulated real API cost (USD) of this lesson so far. */
+      lessonCostUsd: number;
     };
 
 export interface SessionData {

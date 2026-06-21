@@ -143,26 +143,32 @@ function parseReply(raw: string): TutorReply {
   }
 }
 
+/** Reply plus the real USD cost of producing it (for wallet metering). */
+export interface TutorTurnResult {
+  reply: TutorReply;
+  costUsd: number;
+}
+
 /** Ask the tutor for its next turn. Returns null only if the AI is unreachable. */
 export async function getTutorReply(
   profile: LearnerProfile,
   lesson: LessonContext,
   history: TutorTurn[],
-): Promise<TutorReply | null> {
+): Promise<TutorTurnResult | null> {
   const messages = toMessages(history);
   // Claude requires the first message to be from the user; seed one if needed.
   if (messages.length === 0 || messages[0]!.role !== "user") {
     messages.unshift({ role: "user", content: "Let's start the lesson." });
   }
-  const raw = await callClaude({
+  const result = await callClaude({
     system: buildSystemPrompt(profile, lesson),
     messages,
     maxTokens: 900,
     temperature: 0.6,
     cacheSystem: true,
   });
-  if (raw === null) return null;
-  return parseReply(raw);
+  if (!result) return null;
+  return { reply: parseReply(result.text), costUsd: result.costUsd };
 }
 
 /** Move mastery toward the new value, clamped to 0..3; completion jumps to 3. */
