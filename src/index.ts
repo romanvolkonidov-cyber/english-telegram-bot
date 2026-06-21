@@ -33,6 +33,7 @@ import { setLanguage, showLanguagePicker } from "./bot/handlers/language.js";
 import {
   learnCommand,
   showTopics,
+  showCourse,
   showLessons,
   startLesson,
   tutorNext,
@@ -132,8 +133,12 @@ bot.on("callback_query:data", async (ctx) => {
     // ── AI tutor navigation ──
     if (data === "learn") return await learnCommand(ctx);
     if (data === "lrn:topics") return await showTopics(ctx);
-    if (data === "lrn:lvl:A1") return await showTopics(ctx, "A1");
-    if (data === "lrn:lvl:A2") return await showTopics(ctx, "A2");
+    if (data === "lrn:lvl:A1") return await showTopics(ctx, "English", "A1");
+    if (data === "lrn:lvl:A2") return await showTopics(ctx, "English", "A2");
+    if (data.startsWith("lrn:c:")) {
+      const parts = data.split(":"); // lrn:c:<code>:<level>
+      return await showCourse(ctx, parts[2] ?? "en", parts[3] ?? "A1");
+    }
     if (data === "lrn:next") return await tutorNext(ctx);
     if (data === "lrn:over") return await tutorOverageContinue(ctx);
     if (data === "lrn:buy") return await showBuyMenu(ctx, "menu");

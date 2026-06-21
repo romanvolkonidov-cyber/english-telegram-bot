@@ -28,6 +28,9 @@ export type LessonFocus =
 /** CEFR levels the tutor offers. */
 export type CEFRLevel = "A1" | "A2";
 
+/** The language a course teaches (its TARGET). */
+export type TargetLanguage = "English" | "Portuguese";
+
 export interface MicroLesson {
   /** Stable id like "1.1" ... "12.12". */
   id: string;
@@ -44,13 +47,15 @@ export interface Topic {
   id: number;
   /** Which CEFR course this topic belongs to. */
   level: CEFRLevel;
+  /** The language this course teaches. */
+  target: TargetLanguage;
   slug: string;
   title: string;
   summary: string;
   lessons: MicroLesson[];
 }
 
-const A1_TOPICS: Omit<Topic, "level">[] = [
+const A1_TOPICS: Omit<Topic, "level" | "target">[] = [
   {
     id: 1,
     slug: "introductions",
@@ -302,7 +307,7 @@ const A1_TOPICS: Omit<Topic, "level">[] = [
  * (be going to / present continuous) → ability → connectors. As with A1, every
  * goal and note here is original and all lesson text is generated at runtime.
  */
-const A2_TOPICS: Omit<Topic, "level">[] = [
+const A2_TOPICS: Omit<Topic, "level" | "target">[] = [
   {
     id: 13,
     slug: "people",
@@ -545,16 +550,42 @@ const A2_TOPICS: Omit<Topic, "level">[] = [
   },
 ];
 
+/** Tag base topics with a course (level + target language), offsetting topic ids
+ *  so each course stays unique and renumbering lesson ids to match. */
+function course(
+  topics: Omit<Topic, "level" | "target">[],
+  level: CEFRLevel,
+  target: TargetLanguage,
+  idOffset: number,
+): Topic[] {
+  return topics.map((t) => ({
+    ...t,
+    id: t.id + idOffset,
+    level,
+    target,
+    lessons: t.lessons.map((l, i) => ({ ...l, id: `${t.id + idOffset}.${i + 1}` })),
+  }));
+}
+
 export const CURRICULUM: Topic[] = [
-  ...A1_TOPICS.map((t) => ({ ...t, level: "A1" as const })),
-  ...A2_TOPICS.map((t) => ({ ...t, level: "A2" as const })),
+  ...course(A1_TOPICS, "A1", "English", 0), // topics 1–12
+  ...course(A2_TOPICS, "A2", "English", 0), // topics 13–24
+  // Portuguese A1 reuses the same A1 themes/goals, taught in Portuguese (topics 25–36).
+  ...course(A1_TOPICS, "A1", "Portuguese", 24),
 ];
 
 export const LEVELS: CEFRLevel[] = ["A1", "A2"];
+/** Target languages offered, in display order. */
+export const COURSES: TargetLanguage[] = ["English", "Portuguese"];
 
-/** All topics in one CEFR course, in order. */
-export function topicsByLevel(level: CEFRLevel): Topic[] {
-  return CURRICULUM.filter((t) => t.level === level);
+/** Topics for one course — a target language at a CEFR level — in order. */
+export function topicsBy(target: TargetLanguage, level: CEFRLevel): Topic[] {
+  return CURRICULUM.filter((t) => t.target === target && t.level === level);
+}
+
+/** Which CEFR levels exist for a target language (e.g. Portuguese only has A1). */
+export function levelsForCourse(target: TargetLanguage): CEFRLevel[] {
+  return LEVELS.filter((lv) => CURRICULUM.some((t) => t.target === target && t.level === lv));
 }
 
 export const TOTAL_LESSONS = CURRICULUM.reduce((n, t) => n + t.lessons.length, 0);
@@ -579,6 +610,9 @@ export function nextLesson(
   if (idx + 1 < topic.lessons.length) {
     return { topicId, lessonId: topic.lessons[idx + 1]!.id };
   }
-  const nextTopic = CURRICULUM.find((t) => t.id === topicId + 1);
+  // Continue within the SAME course (same target language), by id order.
+  const nextTopic = CURRICULUM.filter((t) => t.target === topic.target && t.id > topicId).sort(
+    (a, b) => a.id - b.id,
+  )[0];
   return nextTopic ? { topicId: nextTopic.id, lessonId: nextTopic.lessons[0]!.id } : null;
 }

@@ -6,9 +6,11 @@ import {
   getTopic,
   getLesson,
   nextLesson,
-  topicsByLevel,
+  topicsBy,
+  levelsForCourse,
   type MicroLesson,
   type CEFRLevel,
+  type TargetLanguage,
 } from "../../tutor/curriculum.js";
 import {
   getAllProgress,
@@ -195,6 +197,18 @@ function tr(ctx: BotContext, ru: string, en: string): string {
   return ctx.session.lang === "en" ? en : ru;
 }
 
+/** Short codes used in callback data for the target language of a course. */
+const TARGET_CODE: Record<TargetLanguage, string> = { English: "en", Portuguese: "pt" };
+function codeToTarget(code: string): TargetLanguage {
+  return code === "pt" ? "Portuguese" : "English";
+}
+/** Localized display name of a target language. */
+function targetName(ctx: BotContext, t: TargetLanguage): string {
+  return t === "Portuguese"
+    ? tr(ctx, "Португальский", "Portuguese")
+    : tr(ctx, "Английский", "English");
+}
+
 /** Build/refresh the learner profile, syncing the tutor's help language to the
  *  BOT's language (chosen from the main menu): ru → Russian, en → English. */
 async function ensureProfile(ctx: BotContext): Promise<LearnerProfile> {
@@ -212,6 +226,7 @@ function lessonContext(topicId: number, lesson: MicroLesson): LessonContext {
   return {
     topicId,
     level: topic.level,
+    target: topic.target,
     topicTitle: topic.title,
     lessonId: lesson.id,
     lessonTitle: lesson.title,
@@ -239,10 +254,25 @@ export async function learnCommand(ctx: BotContext): Promise<void> {
   await showTopics(ctx);
 }
 
-export async function showTopics(ctx: BotContext, level: CEFRLevel = "A1"): Promise<void> {
+/** Callback entry: show a course by its short code (en/pt) + level. */
+export async function showCourse(ctx: BotContext, code: string, level: string): Promise<void> {
+  await showTopics(ctx, codeToTarget(code), level === "A2" ? "A2" : "A1");
+}
+
+export async function showTopics(
+  ctx: BotContext,
+  target: TargetLanguage = "English",
+  level: CEFRLevel = "A1",
+): Promise<void> {
   ctx.session.flow = undefined; // leaving any running lesson
   const id = telegramId(ctx);
   const isAdmin = ctx.session.role === "teacher";
+  // Portuguese is offered to teachers/admin only; students always get English.
+  if (target === "Portuguese" && !isAdmin) target = "English";
+  const levels = levelsForCourse(target);
+  if (!levels.includes(level)) level = levels[0] ?? "A1";
+  const code = TARGET_CODE[target];
+
   const [progress, wallet] = await Promise.all([
     getAllProgress(id).catch(() => []),
     isAdmin ? Promise.resolve(null) : getWallet(id).catch(() => null),
@@ -253,16 +283,23 @@ export async function showTopics(ctx: BotContext, level: CEFRLevel = "A1"): Prom
   }
 
   const kb = new InlineKeyboard();
-  // Number topics within their level (A2's first unit shows as "1", not "13").
-  topicsByLevel(level).forEach((topic, i) => {
+  // Number topics within their course (so each level's first unit shows as "1").
+  topicsBy(target, level).forEach((topic, i) => {
     const done = masteredByTopic.get(topic.id) ?? 0;
     const tick = done >= topic.lessons.length ? "✅ " : "";
     kb.text(`${tick}${i + 1}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
   });
-  // Level switcher (current level marked).
-  kb.text(`${level === "A1" ? "🔵 " : ""}A1`, "lrn:lvl:A1")
-    .text(`${level === "A2" ? "🔵 " : ""}A2`, "lrn:lvl:A2")
-    .row();
+  // Language switcher — teachers can switch between English and Portuguese.
+  if (isAdmin) {
+    kb.text(`${target === "English" ? "🔵 " : ""}🇬🇧 English`, "lrn:c:en:A1")
+      .text(`${target === "Portuguese" ? "🔵 " : ""}🇵🇹 Português`, "lrn:c:pt:A1")
+      .row();
+  }
+  // Level switcher (only the levels that exist for this course).
+  if (levels.length > 1) {
+    for (const lv of levels) kb.text(`${lv === level ? "🔵 " : ""}${lv}`, `lrn:c:${code}:${lv}`);
+    kb.row();
+  }
 
   // Wallet line and buy button: hidden for admin (teacher).
   let walletLine = "";
@@ -279,10 +316,11 @@ export async function showTopics(ctx: BotContext, level: CEFRLevel = "A1"): Prom
     kb.text(tr(ctx, "💎 Купить уроки", "💎 Buy lessons"), "lrn:buy").row();
   }
 
+  const name = targetName(ctx, target);
   const header = tr(
     ctx,
-    `📚 <b>Английский ${level} — выбери тему</b>\nИдём шаг за шагом. Нажми тему, затем урок.`,
-    `📚 <b>English ${level} — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.`,
+    `📚 <b>${name} ${level} — выбери тему</b>\nИдём шаг за шагом. Нажми тему, затем урок.`,
+    `📚 <b>${name} ${level} — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.`,
   );
   const fullText = walletLine ? `${header}\n\n${walletLine}` : header;
   await ctx.reply(fullText, { parse_mode: "HTML", reply_markup: kb });
@@ -303,7 +341,7 @@ export async function showLessons(ctx: BotContext, topicId: number): Promise<voi
     const m = masteryByLesson.get(lesson.id) ?? 0;
     kb.text(`${mark(m)} ${lesson.title}`, `lrn:l:${topicId}:${lesson.id}`).row();
   }
-  kb.text(tr(ctx, "⬅️ Темы", "⬅️ Topics"), `lrn:lvl:${topic.level}`);
+  kb.text(tr(ctx, "⬅️ Темы", "⬅️ Topics"), `lrn:c:${TARGET_CODE[topic.target]}:${topic.level}`);
 
   await ctx.reply(
     `📖 <b>${esc(topic.title)}</b>\n${esc(topic.summary)}`,
@@ -478,11 +516,12 @@ async function overageAllowed(ctx: BotContext, flow: TutorFlow): Promise<boolean
  *  cover the extra from the student's balance. */
 async function askOverageConsent(ctx: BotContext): Promise<void> {
   const flow = tutorFlow(ctx);
-  const lvl = flow ? (getTopic(flow.topicId)?.level ?? "A1") : "A1";
+  const topic = flow ? getTopic(flow.topicId) : undefined;
+  const back = topic ? `lrn:c:${TARGET_CODE[topic.target]}:${topic.level}` : "lrn:topics";
   const kb = new InlineKeyboard()
     .text(tr(ctx, "✅ Да, продолжить", "✅ Yes, continue"), "lrn:over")
     .row()
-    .text(tr(ctx, "⏸️ Закончить урок", "⏸️ End the lesson"), `lrn:lvl:${lvl}`);
+    .text(tr(ctx, "⏸️ Закончить урок", "⏸️ End the lesson"), back);
   await ctx.reply(
     tr(
       ctx,
@@ -568,12 +607,13 @@ async function renderReply(
     flow.awaiting = "none";
     if (reply.board) await replyRich(ctx, reply.board);
     const next = nextLesson(flow.topicId, flow.lessonId);
-    const lvl = getTopic(flow.topicId)?.level ?? "A1";
+    const topic = getTopic(flow.topicId);
+    const back = topic ? `lrn:c:${TARGET_CODE[topic.target]}:${topic.level}` : "lrn:topics";
     const kb = new InlineKeyboard();
     if (next) kb.text(tr(ctx, "▶️ Следующий урок", "▶️ Next lesson"), "lrn:next").row();
     kb.text(tr(ctx, "📖 Уроки", "📖 Lessons"), `lrn:t:${flow.topicId}`).text(
       tr(ctx, "📚 Темы", "📚 Topics"),
-      `lrn:lvl:${lvl}`,
+      back,
     );
     await ctx.reply(tr(ctx, "🎉 Урок пройден — отличная работа!", "🎉 Lesson complete — nice work!"), {
       reply_markup: kb,

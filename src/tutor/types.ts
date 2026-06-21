@@ -1,4 +1,4 @@
-import type { CEFRLevel, LessonFocus } from "./curriculum.js";
+import type { CEFRLevel, LessonFocus, TargetLanguage } from "./curriculum.js";
 
 /**
  * Persistent profile of a learner, stored in the tutor Firestore. Keyed by the
@@ -73,6 +73,8 @@ export interface LessonContext {
   topicId: number;
   /** CEFR course this lesson belongs to (A1 / A2). */
   level: CEFRLevel;
+  /** The language being taught (English / Portuguese). */
+  target: TargetLanguage;
   topicTitle: string;
   lessonId: string;
   lessonTitle: string;
