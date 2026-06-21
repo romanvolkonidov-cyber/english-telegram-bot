@@ -3,11 +3,12 @@ import type { BotContext, Flow } from "../context.js";
 import { esc } from "../../util/format.js";
 import { config, hasTutorLLM, hasGemini } from "../../config.js";
 import {
-  CURRICULUM,
   getTopic,
   getLesson,
   nextLesson,
+  topicsByLevel,
   type MicroLesson,
+  type CEFRLevel,
 } from "../../tutor/curriculum.js";
 import {
   getAllProgress,
@@ -211,6 +212,7 @@ function lessonContext(topicId: number, lesson: MicroLesson): LessonContext {
   const topic = getTopic(topicId)!;
   return {
     topicId,
+    level: topic.level,
     topicTitle: topic.title,
     lessonId: lesson.id,
     lessonTitle: lesson.title,
@@ -238,7 +240,7 @@ export async function learnCommand(ctx: BotContext): Promise<void> {
   await showTopics(ctx);
 }
 
-export async function showTopics(ctx: BotContext): Promise<void> {
+export async function showTopics(ctx: BotContext, level: CEFRLevel = "A1"): Promise<void> {
   ctx.session.flow = undefined; // leaving any running lesson
   const id = telegramId(ctx);
   const [progress, wallet] = await Promise.all([
@@ -251,11 +253,17 @@ export async function showTopics(ctx: BotContext): Promise<void> {
   }
 
   const kb = new InlineKeyboard();
-  for (const topic of CURRICULUM) {
+  // Number topics within their level (A2's first unit shows as "1", not "13").
+  topicsByLevel(level).forEach((topic, i) => {
     const done = masteredByTopic.get(topic.id) ?? 0;
     const tick = done >= topic.lessons.length ? "✅ " : "";
-    kb.text(`${tick}${topic.id}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
-  }
+    kb.text(`${tick}${i + 1}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
+  });
+  // Level switcher (current level marked).
+  kb.text(`${level === "A1" ? "🔵 " : ""}A1`, "lrn:lvl:A1")
+    .text(`${level === "A2" ? "🔵 " : ""}A2`, "lrn:lvl:A2")
+    .row();
+
   // Wallet line: free first lesson, or remaining balance as "≈ N lessons".
   const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
   const walletLine =
@@ -270,8 +278,8 @@ export async function showTopics(ctx: BotContext): Promise<void> {
 
   const header = tr(
     ctx,
-    "📚 <b>Английский A1 — выбери тему</b>\nИдём шаг за шагом. Нажми тему, затем урок.",
-    "📚 <b>English A1 — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.",
+    `📚 <b>Английский ${level} — выбери тему</b>\nИдём шаг за шагом. Нажми тему, затем урок.`,
+    `📚 <b>English ${level} — choose a topic</b>\nWe'll go step by step. Tap a topic, then a lesson.`,
   );
   await ctx.reply(`${header}\n\n${walletLine}`, { parse_mode: "HTML", reply_markup: kb });
 }
@@ -291,7 +299,7 @@ export async function showLessons(ctx: BotContext, topicId: number): Promise<voi
     const m = masteryByLesson.get(lesson.id) ?? 0;
     kb.text(`${mark(m)} ${lesson.title}`, `lrn:l:${topicId}:${lesson.id}`).row();
   }
-  kb.text(tr(ctx, "⬅️ Темы", "⬅️ Topics"), "lrn:topics");
+  kb.text(tr(ctx, "⬅️ Темы", "⬅️ Topics"), `lrn:lvl:${topic.level}`);
 
   await ctx.reply(
     `📖 <b>${esc(topic.title)}</b>\n${esc(topic.summary)}`,
@@ -530,11 +538,12 @@ async function renderReply(
     flow.awaiting = "none";
     if (reply.board) await replyRich(ctx, reply.board);
     const next = nextLesson(flow.topicId, flow.lessonId);
+    const lvl = getTopic(flow.topicId)?.level ?? "A1";
     const kb = new InlineKeyboard();
     if (next) kb.text(tr(ctx, "▶️ Следующий урок", "▶️ Next lesson"), "lrn:next").row();
     kb.text(tr(ctx, "📖 Уроки", "📖 Lessons"), `lrn:t:${flow.topicId}`).text(
       tr(ctx, "📚 Темы", "📚 Topics"),
-      "lrn:topics",
+      `lrn:lvl:${lvl}`,
     );
     await ctx.reply(tr(ctx, "🎉 Урок пройден — отличная работа!", "🎉 Lesson complete — nice work!"), {
       reply_markup: kb,

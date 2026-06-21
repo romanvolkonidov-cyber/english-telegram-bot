@@ -119,6 +119,8 @@ bot.on("callback_query:data", async (ctx) => {
     // ── AI tutor navigation ──
     if (data === "learn") return await learnCommand(ctx);
     if (data === "lrn:topics") return await showTopics(ctx);
+    if (data === "lrn:lvl:A1") return await showTopics(ctx, "A1");
+    if (data === "lrn:lvl:A2") return await showTopics(ctx, "A2");
     if (data === "lrn:next") return await tutorNext(ctx);
     if (data === "lrn:buy") return await showBuyMenu(ctx, "menu");
     if (data.startsWith("buy:")) return await startPurchase(ctx, data.slice("buy:".length));
@@ -210,7 +212,7 @@ async function main(): Promise<void> {
     await bot.api.setMyCommands([
       { command: "start", description: "Log in / open the bot" },
       { command: "menu", description: "Main menu" },
-      { command: "learn", description: "AI English tutor (A1 course)" },
+      { command: "learn", description: "AI English tutor (A1 & A2 courses)" },
       { command: "language", description: "Change language" },
       { command: "reminders", description: "Lesson reminders on/off" },
       { command: "logout", description: "Log out" },

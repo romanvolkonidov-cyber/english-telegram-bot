@@ -1,4 +1,4 @@
-import type { LessonFocus } from "./curriculum.js";
+import type { CEFRLevel, LessonFocus } from "./curriculum.js";
 
 /**
  * Persistent profile of a learner, stored in the tutor Firestore. Keyed by the
@@ -11,8 +11,8 @@ export interface LearnerProfile {
   /** Language the learner speaks natively, e.g. "Russian". Follows the bot's
    *  language (set from the main menu); used for bilingual help. */
   nativeLanguage: string;
-  /** Self-reported or inferred CEFR-ish level. We only teach A1 for now. */
-  level: "A0" | "A1";
+  /** Self-reported or inferred CEFR-ish level. */
+  level: "A0" | "A1" | "A2";
   createdAt: number;
   updatedAt: number;
 }
@@ -71,6 +71,8 @@ export interface TutorReply {
 
 export interface LessonContext {
   topicId: number;
+  /** CEFR course this lesson belongs to (A1 / A2). */
+  level: CEFRLevel;
   topicTitle: string;
   lessonId: string;
   lessonTitle: string;

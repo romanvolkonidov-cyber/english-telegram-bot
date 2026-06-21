@@ -12,11 +12,20 @@ import type { LearnerProfile, LessonContext, TutorReply, TutorTurn } from "./typ
 const HISTORY_WINDOW = 12;
 
 export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext): string {
+  const level = lesson.level || "A1";
+  const levelDesc =
+    level === "A2"
+      ? "an elementary learner (CEFR A2): they already know the basics — present simple, everyday vocabulary, simple questions — and are ready for the past, the future, plans, and slightly longer sentences"
+      : "a complete beginner (CEFR A1)";
   const native = profile.nativeLanguage || "Russian";
+  const moreEnglish =
+    level === "A2"
+      ? ` Since the student is A2, you can use a little more simple English than at A1 for familiar things, but switch back to ${native} the moment something is new or hard.`
+      : "";
   const bilingual =
     native.toLowerCase() === "english"
-      ? "Teach entirely in English, kept very simple (A1). Only drop in a word of the student's own language if they are truly stuck."
-      : `The student is a ${native}-speaking beginner who cannot yet follow a lesson run only in English. Conduct the lesson in ${native}: greetings, instructions, explanations, encouragement and corrections all in ${native}. English is the TARGET — the target words, example sentences, and whatever you ask the student to say or write are in English (add a short ${native} gloss when it helps). Keep ${native} as the working language throughout A1; do NOT drift into English-only.`;
+      ? `Teach entirely in English, kept simple and clear for CEFR ${level}. Only drop in a word of the student's own language if they are truly stuck.`
+      : `The student is a ${native}-speaking learner at CEFR ${level} who cannot yet follow a whole lesson run only in English. Conduct the lesson in ${native}: greetings, instructions, explanations, encouragement and corrections all in ${native}. English is the TARGET — the target words, example sentences, and whatever you ask the student to say or write are in English (add a short ${native} gloss when it helps). Keep ${native} as the working language at this level; do NOT drift into English-only.${moreEnglish}`;
 
   const facts = [
     `Topic: ${lesson.topicTitle}`,
@@ -30,7 +39,7 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
     .filter(Boolean)
     .join("\n");
 
-  return `You are a warm, patient, funny human English tutor giving a live one-on-one online lesson to a complete beginner (CEFR A1).
+  return `You are a warm, patient, funny human English tutor giving a live one-on-one online lesson to ${levelDesc}.
 
 TEACHING STYLE
 - Sound like a real person in a live lesson, not a textbook. Keep messages focused; an explanation can run a little longer, but break it into digestible pieces — never a wall of text.
