@@ -34,7 +34,6 @@ import {
   starsPerLesson,
   MEDIA_COST_USD,
   LESSON_BUDGET_USD,
-  INCLUDED_MISTAKES,
   FREE_TRIAL_ENABLED,
 } from "../../tutor/pricing.js";
 
@@ -341,7 +340,7 @@ export async function startLesson(
     free,
     lessonCostUsd: 0,
     mistakes: 0,
-    overageNotified: false,
+    overageOk: false,
   };
   await setLessonMastery(id, topicId, lessonId, startMastery).catch(() => {});
   if (free) await markFreeLessonUsed(id).catch(() => {});
@@ -412,7 +411,8 @@ async function chargeUsd(
   if (usd <= 0) return;
   flow.lessonCostUsd = Math.round((flow.lessonCostUsd + usd) * 1e4) / 1e4;
   console.log(
-    `[tutor] ${label} $${usd.toFixed(4)} | lesson $${flow.lessonCostUsd.toFixed(4)} | free=${flow.free}`,
+    `[tutor] ${label} $${usd.toFixed(4)} | lesson $${flow.lessonCostUsd.toFixed(4)} | ` +
+      `budget $${LESSON_BUDGET_USD} | mistakes ${flow.mistakes} | free=${flow.free}`,
   );
   if (!flow.free) await debit(telegramId(ctx), usd).catch(() => {});
 }
@@ -430,8 +430,10 @@ async function meterTurn(
   await chargeUsd(ctx, flow, cost, "turn");
 }
 
-/** Can this lesson keep spending? The free trial is capped at one lesson's
- *  budget; a paid lesson runs until the wallet is empty. */
+/** Cheap pre-check before spending: can we spend at all? The free trial is
+ *  capped at one lesson's budget; a paid lesson needs some balance. (The
+ *  per-lesson "overusage" consent is handled separately, after the student's
+ *  input is recorded — see overageAllowed.) */
 async function gate(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
   if (flow.free) {
     if (flow.lessonCostUsd < LESSON_BUDGET_USD) return true;
@@ -442,6 +444,48 @@ async function gate(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
   if (w && w.balanceUsd > 0) return true;
   await showBuyMenu(ctx, "no_balance");
   return false;
+}
+
+/**
+ * A paid lesson includes one lesson's budget. If it runs past that (rare — a
+ * very long/heavy lesson), don't silently keep spending: if the student still
+ * has balance, ask them to agree to cover the extra from it; if they're out,
+ * send them to buy more (even a tiny top-up lets them keep going). Returns true
+ * if it's fine to continue right now. Call this AFTER the student's turn is in
+ * history, so a tapped "continue" resumes the same turn.
+ */
+async function overageAllowed(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
+  if (flow.free || flow.overageOk || flow.lessonCostUsd < LESSON_BUDGET_USD) return true;
+  const w = await getWallet(telegramId(ctx)).catch(() => null);
+  // Not enough left to meaningfully continue → must top up (single-lesson case).
+  if (!w || w.balanceUsd < 0.1) {
+    await showBuyMenu(ctx, "no_balance");
+    return false;
+  }
+  // They have balance (a package) → explain and ask to agree.
+  await askOverageConsent(ctx);
+  return false;
+}
+
+/** Explain that this lesson is running past its included budget and offer to
+ *  cover the extra from the student's balance. */
+async function askOverageConsent(ctx: BotContext): Promise<void> {
+  const flow = tutorFlow(ctx);
+  const lvl = flow ? (getTopic(flow.topicId)?.level ?? "A1") : "A1";
+  const kb = new InlineKeyboard()
+    .text(tr(ctx, "✅ Да, продолжить", "✅ Yes, continue"), "lrn:over")
+    .row()
+    .text(tr(ctx, "⏸️ Закончить урок", "⏸️ End the lesson"), `lrn:lvl:${lvl}`);
+  await ctx.reply(
+    tr(
+      ctx,
+      "⚡ Урок получился насыщенным и уже использовал обычный объём занятия. Если продолжим, " +
+        "дополнительное время спишется звёздами с твоего баланса. Продолжаем?",
+      "⚡ This lesson has been packed and has already used a normal lesson's worth. If we keep " +
+        "going, the extra time is covered by stars from your balance. Continue?",
+    ),
+    { reply_markup: kb },
+  );
 }
 
 /** Speak text as a voice note (the primary channel). Returns true if sent. */
@@ -516,21 +560,6 @@ async function renderReply(
 
   // Meter the real cost of everything we just produced (Claude + voice + picture).
   await meterTurn(ctx, flow, result.costUsd, spoke, imgSent);
-
-  // The first ~5 mistakes are included in the lesson price; once a paid lesson
-  // goes past that, let the student know (once) that extra practice keeps going.
-  if (!flow.free && flow.mistakes > INCLUDED_MISTAKES && !flow.overageNotified) {
-    flow.overageNotified = true;
-    await ctx.reply(
-      tr(
-        ctx,
-        "💪 Ты сегодня много занимаешься — здорово! Этот урок получился длиннее обычного, " +
-          "так что дальше идёт дополнительная практика сверх включённого урока.",
-        "💪 You're practising a lot today — great! This lesson has run longer than usual, " +
-          "so from here it's extra practice beyond the included lesson.",
-      ),
-    );
-  }
 
   // Lesson finished.
   if (reply.lessonComplete) {
@@ -646,6 +675,7 @@ export async function tutorOnText(ctx: BotContext, text: string): Promise<void> 
   }
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
   flow.history.push({ role: "student", text: text.trim() });
+  if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   await think(ctx);
   const profile = await ensureProfile(ctx);
   const lesson = getLesson(flow.topicId, flow.lessonId);
@@ -705,6 +735,7 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
   await chargeUsd(ctx, flow, MEDIA_COST_USD.stt, "stt"); // we transcribed their voice
 
   flow.history.push({ role: "student", text: `[spoken aloud] ${transcript}` });
+  if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   const profile = await ensureProfile(ctx);
   const lesson = getLesson(flow.topicId, flow.lessonId);
   if (!lesson) return;
@@ -747,11 +778,24 @@ export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promis
   });
 
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
+  if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   await think(ctx);
   const profile = await ensureProfile(ctx);
   const lesson = getLesson(flow.topicId, flow.lessonId);
   if (!lesson) return;
   await advance(ctx, flow, profile, lesson);
+}
+
+/** Continue a lesson past its included budget after the student agreed (lrn:over). */
+export async function tutorOverageContinue(ctx: BotContext): Promise<void> {
+  const flow = tutorFlow(ctx);
+  if (!flow) return await showTopics(ctx);
+  flow.overageOk = true; // draw the extra from balance for the rest of this lesson
+  await think(ctx);
+  const profile = await ensureProfile(ctx);
+  const lesson = getLesson(flow.topicId, flow.lessonId);
+  if (!lesson) return;
+  await advance(ctx, flow, profile, lesson); // the student's turn is already in history
 }
 
 /** "Next lesson" after completing one. */
@@ -834,12 +878,6 @@ export async function showBuyMenu(
     "",
     tr(ctx, `📊 Сейчас на балансе: <b>≈ ${bal} ур.</b>`, `📊 Your balance: <b>≈ ${bal} lessons</b>`),
     "",
-    tr(
-      ctx,
-      `✅ В каждый урок включено до ${INCLUDED_MISTAKES} ошибок — за них доплачивать не нужно.`,
-      `✅ Every lesson includes up to ${INCLUDED_MISTAKES} mistakes — no extra charge for those.`,
-    ),
-    "",
   ];
   const perWord = tr(ctx, "⭐/урок", "⭐/lesson");
   const kb = new InlineKeyboard();
@@ -909,7 +947,11 @@ export async function handleSuccessfulPayment(ctx: BotContext): Promise<void> {
   }
   const wallet = await creditAllowance(telegramId(ctx), pkg.allowanceUsd).catch(() => null);
   const lessons = approxLessons(wallet?.balanceUsd ?? pkg.allowanceUsd);
-  const tail = tutorFlow(ctx)
+  // If they topped up mid-lesson, they've effectively agreed to keep going — don't
+  // re-ask for overage consent on the very next turn.
+  const flow = tutorFlow(ctx);
+  if (flow) flow.overageOk = true;
+  const tail = flow
     ? tr(ctx, "Продолжаем урок — просто отправь свой ответ 🎤", "Let's continue — just send your answer 🎤")
     : tr(ctx, "Выбери тему и начнём! /learn", "Pick a topic and let's start! /learn");
   await ctx.reply(

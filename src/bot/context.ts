@@ -34,10 +34,11 @@ export type Flow =
       free: boolean;
       /** Accumulated real API cost (USD) of this lesson so far. */
       lessonCostUsd: number;
-      /** How many mistakes the student has made this lesson (for the "5 included" rule). */
+      /** How many mistakes the student has made this lesson (for owner insight/logs). */
       mistakes: number;
-      /** True once we've shown the gentle "this lesson ran long" overage note. */
-      overageNotified: boolean;
+      /** True once the student has agreed to let THIS lesson run past its included
+       *  budget and draw the extra from their balance. */
+      overageOk: boolean;
     };
 
 export interface SessionData {

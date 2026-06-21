@@ -59,11 +59,6 @@ export const MEDIA_COST_USD = {
  */
 export const LESSON_BUDGET_USD = 1.5;
 
-/** Mistakes included in a lesson's price before it counts as "overusage". Each
- *  mistake makes the tutor re-explain and re-test, which burns extra tokens, so
- *  the budget above is sized to absorb up to this many. */
-export const INCLUDED_MISTAKES = 10;
-
 /** Give every new student ONE free lesson (best conversion hook). The free
  *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
  *  recovered on the student's first purchase. Flip to false to require payment

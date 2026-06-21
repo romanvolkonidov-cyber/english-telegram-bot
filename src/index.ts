@@ -39,6 +39,7 @@ import {
   tutorOnText,
   tutorOnVoice,
   tutorQuizAnswer,
+  tutorOverageContinue,
   showBuyMenu,
   startPurchase,
   handleSuccessfulPayment,
@@ -122,6 +123,7 @@ bot.on("callback_query:data", async (ctx) => {
     if (data === "lrn:lvl:A1") return await showTopics(ctx, "A1");
     if (data === "lrn:lvl:A2") return await showTopics(ctx, "A2");
     if (data === "lrn:next") return await tutorNext(ctx);
+    if (data === "lrn:over") return await tutorOverageContinue(ctx);
     if (data === "lrn:buy") return await showBuyMenu(ctx, "menu");
     if (data.startsWith("buy:")) return await startPurchase(ctx, data.slice("buy:".length));
     if (data.startsWith("lrn:t:")) return await showLessons(ctx, Number(data.slice("lrn:t:".length)));
