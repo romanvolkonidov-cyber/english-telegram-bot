@@ -48,17 +48,21 @@ export const MEDIA_COST_USD = {
 };
 
 /**
- * The API budget INCLUDED in one lesson — a hard cap. A normal lesson plus up
- * to ~5 mistakes' worth of extra adaptive practice fits inside this; the student
- * is never asked for more stars until a lesson goes beyond it. It is also the
- * unit we use to show a balance as "≈ N lessons". Worst-case measured cost of a
- * rich, voice-every-turn, 5-mistake lesson is ≈ $0.60, so $0.75 leaves headroom.
+ * The API budget INCLUDED in one lesson — a hard cap. A full, picture-rich,
+ * voice-every-turn lesson PLUS up to ~10 mistakes (each mistake costs extra: the
+ * tutor re-teaches and re-tests that type) fits inside this, so the student is
+ * never asked for more stars until a lesson goes beyond it. It is also the unit
+ * we show as "≈ N lessons". Worst-case measured cost of such a heavy lesson is
+ * ≈ $1.1–1.5 (lots of generated images + a grounded picture call each), so $1.50
+ * leaves headroom. Typical lessons cost far less, so students usually get more
+ * lessons than advertised — and the profit guarantee below holds regardless.
  */
-export const LESSON_BUDGET_USD = 0.75;
+export const LESSON_BUDGET_USD = 1.5;
 
-/** How many mistakes are included in a lesson's price before it counts as
- *  "overusage" (used only for friendly messaging — the hard limit is the budget). */
-export const INCLUDED_MISTAKES = 5;
+/** Mistakes included in a lesson's price before it counts as "overusage". Each
+ *  mistake makes the tutor re-explain and re-test, which burns extra tokens, so
+ *  the budget above is sized to absorb up to this many. */
+export const INCLUDED_MISTAKES = 10;
 
 /** Give every new student ONE free lesson (best conversion hook). The free
  *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
@@ -69,7 +73,7 @@ export const FREE_TRIAL_ENABLED = true;
 /**
  * Top-up packages. A package grants `lessons × LESSON_BUDGET_USD` of API
  * allowance — the most a student can ever burn. Bigger packs cost fewer stars
- * per lesson (120 → 90 → 75), which makes the big pack clearly the best deal.
+ * per lesson (200 → 170 → 150), which makes the big pack clearly the best deal.
  */
 export interface StarPackage {
   id: string;
@@ -84,9 +88,9 @@ export interface StarPackage {
 }
 
 export const PACKAGES: StarPackage[] = [
-  { id: "single", stars: 120, lessons: 1, allowanceUsd: 0.75, title: "1 урок" },
-  { id: "pack", stars: 900, lessons: 10, allowanceUsd: 7.5, title: "10 уроков · выгодно 🔥" },
-  { id: "big", stars: 2250, lessons: 30, allowanceUsd: 22.5, title: "30 уроков · лучшая цена" },
+  { id: "single", stars: 200, lessons: 1, allowanceUsd: 1.5, title: "1 урок" },
+  { id: "pack", stars: 1700, lessons: 10, allowanceUsd: 15.0, title: "10 уроков · выгодно 🔥" },
+  { id: "big", stars: 4500, lessons: 30, allowanceUsd: 45.0, title: "30 уроков · лучшая цена" },
 ];
 
 export function packageById(id: string): StarPackage | undefined {

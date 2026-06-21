@@ -35,6 +35,7 @@ const en = {
   menu_homework: "📚 My homework",
   menu_results: "📊 My results",
   menu_progress: "🎮 My progress",
+  menu_learn: "🤖 AI English tutor",
   menu_language: "🌐 Language",
   menu_logout: "🚪 Log out",
 
@@ -167,6 +168,7 @@ const ru: Record<TranslationKey, string> = {
   menu_homework: "📚 Домашние задания",
   menu_results: "📊 Мои результаты",
   menu_progress: "🎮 Мой прогресс",
+  menu_learn: "🤖 ИИ-репетитор английского",
   menu_language: "🌐 Язык",
   menu_logout: "🚪 Выйти",
 

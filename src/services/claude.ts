@@ -9,9 +9,15 @@ import { claudeCostUsd } from "../tutor/pricing.js";
  * Raw fetch throughout, so no SDK dependency (mirrors services/gemini.ts).
  */
 
+/** A content block — plain text, or an image for vision (grounded picture tasks). */
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+
 export interface ClaudeMessage {
   role: "user" | "assistant";
-  content: string;
+  /** A string for normal turns, or blocks when showing the tutor an image to look at. */
+  content: string | ContentBlock[];
 }
 
 export interface ClaudeCall {

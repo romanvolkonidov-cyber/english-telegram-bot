@@ -12,6 +12,8 @@ export function mainMenuKeyboard(lang: Language): InlineKeyboard {
     .row()
     .text(t(lang, "menu_progress"), "progress")
     .row()
+    .text(t(lang, "menu_learn"), "learn")
+    .row()
     .text(t(lang, "menu_language"), "lang:menu")
     .text(t(lang, "menu_logout"), "logout");
 }

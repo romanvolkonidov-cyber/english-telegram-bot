@@ -34,7 +34,6 @@ import {
   learnCommand,
   showTopics,
   showLessons,
-  setTutorLanguage,
   startLesson,
   tutorNext,
   tutorOnText,
@@ -118,9 +117,8 @@ bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery();
 
     // ── AI tutor navigation ──
-    if (data === "learn" || data === "lrn:topics") return await showTopics(ctx);
-    if (data === "lrn:lang:ru") return await setTutorLanguage(ctx, "Russian");
-    if (data === "lrn:lang:en") return await setTutorLanguage(ctx, "English");
+    if (data === "learn") return await learnCommand(ctx);
+    if (data === "lrn:topics") return await showTopics(ctx);
     if (data === "lrn:next") return await tutorNext(ctx);
     if (data === "lrn:buy") return await showBuyMenu(ctx, "menu");
     if (data.startsWith("buy:")) return await startPurchase(ctx, data.slice("buy:".length));

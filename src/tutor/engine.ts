@@ -1,4 +1,5 @@
 import { callClaude, type ClaudeMessage } from "../services/claude.js";
+import { toBase64 } from "../services/voice.js";
 import type { LearnerProfile, LessonContext, TutorReply, TutorTurn } from "./types.js";
 
 /**
@@ -54,32 +55,33 @@ THIS LESSON
 ${facts}
 
 HOW TO TEACH IT — follow this arc across several turns; do NOT skip to practice:
-1. PRESENT — give a COMPLETE explanation, not a vague intro. For a grammar lesson the student must come away knowing all three: (a) the MEANING / when to use it; (b) the FORM — the exact structure or formula (e.g. present continuous = am/is/are + verb-ing, and which subject takes am / is / are); and (c) 3–4 example sentences for different subjects, each with a short ${native} gloss. Explain it in ${native} by voice, and show the formula + the examples as written text. It must be genuinely enough to understand and use the rule before any practice — don't just name it and jump to one example. Deliver the WHOLE explanation in THIS one turn (voice explains meaning + form; the written formula and examples go in "board") and finish it with a quick check like «Понятно? Давай попробуем!» — never give a teaser such as «давай объясню по порядку» and stop. (Vocabulary: each word + meaning + an example. Pronunciation: model the sound, then example words.)
+1. PRESENT — give a COMPLETE explanation, not a vague intro. For a grammar lesson the student must come away knowing all three: (a) the MEANING / when to use it; (b) the FORM — the exact structure or formula (e.g. present continuous = am/is/are + verb-ing, and which subject takes am / is / are); and (c) 3–4 example sentences for different subjects, each with a short ${native} gloss. Explain it in ${native} by voice, and show the formula + the examples as written text. It must be genuinely enough to understand and use the rule before any practice — don't just name it and jump to one example. Deliver the WHOLE explanation in THIS one turn (voice explains meaning + form; the written formula and examples go in "board") and finish it with a quick check like «Понятно? Давай попробуем!» — never give a teaser such as «давай объясню по порядку» and stop. (Vocabulary: for EACH new word SHOW a picture of it — set "image" to that word/object — together with the meaning and an example; a beginner remembers a word far better when they SEE it. Pronunciation: model the sound, then example words.)
 2. CHECK. Ask whether it's clear or if they have questions (e.g. "Понятно? Есть вопросы?"), and answer simply before moving on.
 3. PRACTICE — make it RICH, VARIED and PRACTICAL. There is NO fixed number of exercises: keep going until the student is genuinely solid on the goal. ROTATE exercise types so it never feels repetitive, and use real-life A1 sentences (ordering food, texting a friend, describing a photo, daily routine), not abstract drills. One exercise per turn; react to each answer, correct kindly, then give the next. Rotate among:
    • Multiple choice — use the "quiz" field (renders as tap-buttons).
    • Fill the gap — a sentence with a blank in "board" (e.g. «She ___ (cook) dinner now.»); ask for the missing word(s).
    • Unscramble — jumbled words in "board" (e.g. «cooking / is / she / dinner»); ask them to put them in order.
-   • Picture task — set "image" to a real-life scene and ask «Что он делает? Скажи по-английски» (they SAY a sentence about the picture).
+   • Picture task — set "image" to a real-life scene AND set "imageAsk": true. The bot draws it, shows it to YOU, and THEN you ask the student about what is ACTUALLY in the picture — to describe it using the words/grammar they've learned, or via a multiple-choice grounded in it. Keep "say" a brief lead-in here (e.g. «Посмотри на картинку…»); you'll ask the real question once you see it.
    • Listening — put a SHORT English mini-monologue or dialogue in "say" so it is HEARD, not shown (English only; do NOT repeat it in "board"), then ask a question about what they heard.
    • Reading — a 2–4 sentence paragraph in "board", then a question about it.
    • Free production — they say their own real sentences out loud.
    Default answers to SPEAKING (expect "voice"); use "text" only for fill-the-gap / unscramble / spelling, and "quiz" for multiple choice.
    ADAPT to performance: when the student gets something wrong, gently correct it and give ANOTHER exercise of the SAME type (then a similar one) until they get it right before moving on — spend extra time on whatever is hard, and move quickly past what they've clearly mastered. Reflect this in "masteryDelta" (negative on a miss, positive on a clean answer).
-4. Finish only when the student can do every part of the goal correctly and consistently — including the types they struggled with at first. If they're still struggling after a lot of practice (roughly 20+ exchanges), don't loop forever: consolidate the key point, praise their effort, set "lessonComplete": true, and suggest doing this lesson again next time.
+4. Finish only when the student can do every part of the goal correctly and consistently — including the types they struggled with at first. Give the student plenty of room to make mistakes (around ten is completely normal): each time, re-explain simply and give another of the same type until they get it. If they're still struggling after a lot of practice (roughly 30+ exchanges), don't loop forever: consolidate the key point, praise their effort, set "lessonComplete": true, and suggest doing this lesson again next time.
 Present the full explanation first; never ask the student to produce the target before you've taught it. End EVERY turn with a clear next step — a question, a check ("Понятно? Готов попробовать?"), or a small task — and set "expect" so the student knows whether to speak or type. Never leave them unsure what to do next.
 
 OUTPUT — respond with ONLY a JSON object (no markdown, no code fences, no text outside it):
 {
   "say": string,                 // what you SAY OUT LOUD (becomes a voice message). Natural spoken language, no markdown. Speak any correction of the student here, kindly.
   "board": string | null,         // text to SHOW on screen — the English word/sentence to read, or a written-exercise prompt. null on pure speaking turns. Keep it short.
-  "image": string | null,         // a few words describing ONE clear picture — a vocabulary item OR a real-life scene for a "describe what's happening" task; use it often
+  "image": string | null,         // a few words describing ONE clear picture to draw — ALWAYS for a new vocabulary word, or a real-life scene; use it in most turns
+  "imageAsk": boolean,            // true ONLY when the picture IS the task (student must describe / answer about it): the bot shows it to you first, then you ask about what's really in it. false for a plain illustration.
   "quiz": null | { "question": string, "options": [string, ...2-4 items], "correctIndex": number, "explain": string },
   "expect": "voice" | "text" | "quiz",   // what the student should do next: "voice" = SPEAK (default), "text" = TYPE, "quiz" = answer the multiple-choice you included
   "masteryDelta": number,         // how much this turn moved them toward the goal, from -1 to +2
   "lessonComplete": boolean
 }
-Every turn MUST end by inviting the student to act: finish your spoken message with a short check or question (e.g. «Понятно? Давай попробуем!») and set "expect" to "quiz" (if you included one) else "voice" or "text". "say" is always spoken. Use "board" for text the student must SEE (never call it a "board" out loud). Use "image" in most lessons — a vocabulary picture or a real-life scene to describe.`;
+Every turn MUST end by inviting the student to act: finish your spoken message with a short check or question (e.g. «Понятно? Давай попробуем!») and set "expect" to "quiz" (if you included one) else "voice" or "text". "say" is always spoken. Use "board" for text the student must SEE (never call it a "board" out loud). Use "image" in most turns — ALWAYS picture a new vocabulary word, and for a "describe the picture" or picture-quiz task set "imageAsk": true so you SEE the real picture before asking about it.`;
 }
 
 function toMessages(history: TutorTurn[]): ClaudeMessage[] {
@@ -120,10 +122,13 @@ function parseReply(raw: string): TutorReply {
             explain: typeof obj.quiz.explain === "string" ? obj.quiz.explain : "",
           }
         : null;
+    const image =
+      typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null;
     return {
       say: typeof obj.say === "string" && obj.say.trim() ? obj.say.trim() : raw.trim(),
       board: typeof obj.board === "string" && obj.board.trim() ? obj.board.trim() : null,
-      image: typeof obj.image === "string" && obj.image.trim() ? obj.image.trim() : null,
+      image,
+      imageAsk: Boolean(obj.imageAsk) && image !== null,
       quiz,
       expect: quiz ? "quiz" : obj.expect === "text" ? "text" : "voice",
       masteryDelta: Number.isFinite(obj.masteryDelta as number) ? Number(obj.masteryDelta) : 0,
@@ -135,6 +140,7 @@ function parseReply(raw: string): TutorReply {
       say: raw.trim(),
       board: null,
       image: null,
+      imageAsk: false,
       quiz: null,
       expect: "voice",
       masteryDelta: 0,
@@ -169,6 +175,57 @@ export async function getTutorReply(
   });
   if (!result) return null;
   return { reply: parseReply(result.text), costUsd: result.costUsd };
+}
+
+/**
+ * Grounded picture task: the tutor asked to SHOW a picture and ask about it. The
+ * bot has now generated that picture and passes the actual bytes here so the
+ * tutor can LOOK at it and ask a question (or build a multiple-choice) about what
+ * is really in the image — not just what it requested. Returns the grounded turn.
+ */
+export async function describeImageTurn(
+  profile: LearnerProfile,
+  lesson: LessonContext,
+  history: TutorTurn[],
+  image: Uint8Array,
+  mediaType: string,
+  scenePrompt: string,
+): Promise<TutorTurnResult | null> {
+  const messages = toMessages(history);
+  if (messages.length === 0 || messages[0]!.role !== "user") {
+    messages.unshift({ role: "user", content: "Let's start the lesson." });
+  }
+  messages.push({
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text:
+          `[This is the picture you asked to show the student (you requested: "${scenePrompt}"). ` +
+          "LOOK at it carefully and base your task ONLY on what is ACTUALLY visible. " +
+          "Give ONE task about it using this lesson's words and grammar, of a kind you can grade later " +
+          "WITHOUT seeing the picture again: EITHER a multiple-choice grounded in the image (use the " +
+          '"quiz" field — correctIndex must match what is really shown), OR ask them to DESCRIBE the ' +
+          "picture / say a sentence about it (any correct English sentence is fine). Avoid open factual " +
+          "questions whose answer can't be checked without the image. If the image differs from what you " +
+          'asked for, adapt to it. Reply in the SAME JSON format, with "image" null and "imageAsk" false.]',
+      },
+      { type: "image", source: { type: "base64", media_type: mediaType, data: toBase64(image) } },
+    ],
+  });
+  const result = await callClaude({
+    system: buildSystemPrompt(profile, lesson),
+    messages,
+    maxTokens: 700,
+    temperature: 0.5,
+    cacheSystem: true,
+  });
+  if (!result) return null;
+  const reply = parseReply(result.text);
+  // The picture is already on screen; never re-trigger generation from this turn.
+  reply.image = null;
+  reply.imageAsk = false;
+  return { reply, costUsd: result.costUsd };
 }
 
 /** Move mastery toward the new value, clamped to 0..3; completion jumps to 3. */
