@@ -110,6 +110,7 @@ const en = {
     "💡 Open the website to spend coins, grow your tree and care for your pet.",
 
   // ── teacher ──
+  teacher_menu_learn: "📚 Self-Study",
   teacher_menu_students: "👩‍🎓 Students",
   teacher_menu_logout: "🚪 Log out",
   teacher_students_title:
@@ -237,6 +238,7 @@ const ru: Record<TranslationKey, string> = {
   progress_web_hint:
     "💡 Откройте сайт, чтобы тратить монеты, растить дерево и заботиться о питомце.",
 
+  teacher_menu_learn: "📚 Самоподготовка",
   teacher_menu_students: "👩‍🎓 Ученики",
   teacher_menu_logout: "🚪 Выйти",
   teacher_students_title:
