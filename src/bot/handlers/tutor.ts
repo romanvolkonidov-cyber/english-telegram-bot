@@ -22,7 +22,16 @@ import { downloadTelegramFile, toBase64 } from "../../services/voice.js";
 import { transcribeSpeech } from "../../services/gemini.js";
 import { synthesizeSpeech, generateImage } from "../../services/media.js";
 import { getWallet, debit, creditAllowance, markFreeLessonUsed } from "../../tutor/wallet.js";
-import { PACKAGES, packageById, approxLessons, MEDIA_COST_USD } from "../../tutor/pricing.js";
+import {
+  PACKAGES,
+  packageById,
+  approxLessons,
+  starsPerLesson,
+  MEDIA_COST_USD,
+  LESSON_BUDGET_USD,
+  INCLUDED_MISTAKES,
+  FREE_TRIAL_ENABLED,
+} from "../../tutor/pricing.js";
 
 type TutorFlow = Extract<Flow, { kind: "tutor" }>;
 
@@ -253,9 +262,10 @@ export async function showTopics(ctx: BotContext): Promise<void> {
   }
   // Wallet line: free first lesson, or remaining balance as "≈ N lessons".
   const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
-  const walletLine = !wallet?.freeLessonUsed
-    ? "🎁 <b>Первый урок бесплатно!</b>"
-    : `💎 На балансе: <b>≈ ${balanceLessons} ур.</b>`;
+  const walletLine =
+    FREE_TRIAL_ENABLED && !wallet?.freeLessonUsed
+      ? "🎁 <b>Первый урок бесплатно!</b>"
+      : `💎 На балансе: <b>≈ ${balanceLessons} ур.</b>`;
   kb.text("💎 Купить уроки", "lrn:buy").row();
 
   // Default is Russian help; offer a one-tap switch to English (and back).
@@ -306,7 +316,7 @@ export async function startLesson(
   // Wallet check: the first lesson ever is free; after that a lesson needs balance.
   const id = telegramId(ctx);
   const wallet = await getWallet(id).catch(() => null);
-  const free = !wallet?.freeLessonUsed;
+  const free = FREE_TRIAL_ENABLED && !wallet?.freeLessonUsed;
   if (!free && (wallet?.balanceUsd ?? 0) <= 0) {
     // Free trial spent and balance empty — student must top up before starting.
     return await showBuyMenu(ctx, "no_balance");
@@ -325,6 +335,8 @@ export async function startLesson(
     awaiting: "none",
     free,
     lessonCostUsd: 0,
+    mistakes: 0,
+    overageNotified: false,
   };
   await setLessonMastery(id, topicId, lessonId, startMastery).catch(() => {});
   if (free) await markFreeLessonUsed(id).catch(() => {});
@@ -400,9 +412,14 @@ async function meterTurn(
   await chargeUsd(ctx, flow, cost, "turn");
 }
 
-/** Can this lesson keep spending? Free lessons always can; otherwise need balance. */
+/** Can this lesson keep spending? The free trial is capped at one lesson's
+ *  budget; a paid lesson runs until the wallet is empty. */
 async function gate(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
-  if (flow.free) return true;
+  if (flow.free) {
+    if (flow.lessonCostUsd < LESSON_BUDGET_USD) return true;
+    await showBuyMenu(ctx, "free_done"); // free trial used up
+    return false;
+  }
   const w = await getWallet(telegramId(ctx)).catch(() => null);
   if (w && w.balanceUsd > 0) return true;
   await showBuyMenu(ctx, "no_balance");
@@ -446,9 +463,10 @@ async function renderReply(ctx: BotContext, result: TutorTurnResult | null): Pro
   }
   const reply = result.reply;
 
-  // Update mastery from this turn.
+  // Update mastery from this turn; a negative delta means the student slipped up.
   const updated = nextMastery(flow.mastery, reply.masteryDelta, reply.lessonComplete);
   flow.mastery = updated;
+  if (reply.masteryDelta < 0) flow.mistakes += 1;
   await setLessonMastery(telegramId(ctx), flow.topicId, flow.lessonId, updated).catch(() => {});
 
   // Remember what was said (and shown) for conversation continuity.
@@ -464,6 +482,16 @@ async function renderReply(ctx: BotContext, result: TutorTurnResult | null): Pro
 
   // Meter the real cost of everything we just produced (Claude + voice + picture).
   await meterTurn(ctx, flow, result.costUsd, spoke, imgSent);
+
+  // The first ~5 mistakes are included in the lesson price; once a paid lesson
+  // goes past that, let the student know (once) that extra practice keeps going.
+  if (!flow.free && flow.mistakes > INCLUDED_MISTAKES && !flow.overageNotified) {
+    flow.overageNotified = true;
+    await ctx.reply(
+      "💪 Ты сегодня много занимаешься — здорово! Этот урок получился длиннее обычного, " +
+        "так что дальше идёт дополнительная практика сверх включённого урока.",
+    );
+  }
 
   // Lesson finished.
   if (reply.lessonComplete) {
@@ -622,12 +650,13 @@ const BUY_BLURB =
 
 /**
  * Show the top-up menu: a single lesson OR a discounted package, with the
- * current balance (as "≈ N lessons") and the per-lesson price for each option.
- * Shown when the balance runs out mid-lesson ("no_balance") or on request ("menu").
+ * current balance (as "≈ N lessons"), the per-lesson price and the savings on
+ * bigger packs. Shown when the balance runs out ("no_balance"), the free trial
+ * is finished ("free_done"), or on request ("menu").
  */
 export async function showBuyMenu(
   ctx: BotContext,
-  reason: "no_balance" | "menu",
+  reason: "no_balance" | "menu" | "free_done",
 ): Promise<void> {
   const wallet = await getWallet(telegramId(ctx)).catch(() => null);
   const balanceLessons = approxLessons(wallet?.balanceUsd ?? 0);
@@ -635,24 +664,33 @@ export async function showBuyMenu(
   const lead =
     reason === "no_balance"
       ? "⏸️ <b>Звёзды закончились — урок на паузе.</b>\nДобавь звёзды, и продолжим с того же места."
-      : "💎 <b>Уроки английского за звёзды</b>";
+      : reason === "free_done"
+        ? "🎁 <b>Бесплатный урок пройден — отлично!</b>\nЧтобы заниматься дальше, выбери вариант:"
+        : "💎 <b>Уроки английского за звёзды</b>";
 
-  // Find the cheapest per-lesson price so we can flag the best deal.
-  const perLessonOf = (p: (typeof PACKAGES)[number]) =>
-    Math.round(p.stars / Math.max(1, approxLessons(p.allowanceUsd)));
-  const cheapest = Math.min(...PACKAGES.map(perLessonOf));
+  // Single lesson is the baseline; bigger packs are cheaper per lesson.
+  const base = (PACKAGES.find((p) => p.id === "single") ?? PACKAGES[0]!);
+  const basePerLesson = starsPerLesson(base);
 
-  const lines = [lead, "", BUY_BLURB, "", `📊 Сейчас на балансе: <b>≈ ${balanceLessons} ур.</b>`, ""];
+  const lines = [
+    lead,
+    "",
+    BUY_BLURB,
+    "",
+    `📊 Сейчас на балансе: <b>≈ ${balanceLessons} ур.</b>`,
+    "",
+    `✅ В каждый урок включено до ${INCLUDED_MISTAKES} ошибок — за них доплачивать не нужно.`,
+    "",
+  ];
   const kb = new InlineKeyboard();
   for (const p of PACKAGES) {
-    const lessons = Math.max(1, approxLessons(p.allowanceUsd));
-    const perLesson = perLessonOf(p);
-    const flag = p.id !== "single" && perLesson === cheapest ? " 🔥" : "";
-    lines.push(
-      `• <b>${esc(p.title)}</b> — ${p.stars} ⭐  (≈ ${lessons} ур., ${perLesson} ⭐/урок)${flag}`,
-    );
+    const per = starsPerLesson(p);
+    const off = basePerLesson > 0 ? Math.round((1 - per / basePerLesson) * 100) : 0;
+    const deal = off > 0 ? `  · −${off}%` : "";
+    lines.push(`• <b>${esc(p.title)}</b> — ${p.stars} ⭐  (${per} ⭐/урок${deal})`);
     const icon = p.id === "single" ? "🎟" : "📦";
-    kb.text(`${icon} ${lessons} ур · ${p.stars} ⭐`, `buy:${p.id}`).row();
+    const tag = p.id === "big" ? " 🔥" : "";
+    kb.text(`${icon} ${p.lessons} ур · ${p.stars} ⭐${tag}`, `buy:${p.id}`).row();
   }
   lines.push("", "💡 Чем больше пакет — тем дешевле каждый урок.");
   kb.text("⬅️ Назад к темам", "lrn:topics");
@@ -665,14 +703,13 @@ export async function startPurchase(ctx: BotContext, pkgId: string): Promise<voi
   const pkg = packageById(pkgId);
   const chatId = ctx.chat?.id;
   if (!pkg || !chatId) return;
-  const lessons = Math.max(1, approxLessons(pkg.allowanceUsd));
   try {
     await ctx.api.raw.sendInvoice({
       chat_id: chatId,
       title: pkg.title,
       description:
-        `≈ ${lessons} уроков английского с ИИ-репетитором — голос, картинки, адаптивно. ` +
-        "Звёзды тратятся по мере занятий, остаток сохраняется.",
+        `${pkg.lessons} ${pkg.lessons === 1 ? "урок" : "уроков"} английского с ИИ-репетитором — ` +
+        "голос, картинки, адаптивно. Звёзды тратятся по мере занятий, остаток сохраняется.",
       payload: `pkg_${pkg.id}`,
       provider_token: "", // empty = Telegram Stars
       currency: "XTR",

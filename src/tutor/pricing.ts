@@ -39,46 +39,97 @@ export function claudeCostUsd(u: ClaudeUsage): number {
   );
 }
 
-/** Deliberately-generous flat media costs (USD), so we never under-charge. */
+/** Deliberately-generous flat media costs (USD), so the metered spend is always
+ *  ≥ what the media actually costs us (the gap is extra margin). */
 export const MEDIA_COST_USD = {
   tts: 0.01, // one spoken voice note
   image: 0.04, // one generated picture
-  stt: 0.01, // transcribing one student voice message
+  stt: 0.004, // transcribing one student voice message
 };
 
-/** Rough cost of a typical adaptive lesson (voice every turn, a few pictures,
- *  ~20 exchanges) — used to show the balance as "≈ N lessons". Real spend is
- *  metered per turn, so this only affects the displayed estimate. */
-export const TYPICAL_LESSON_USD = 0.5;
+/**
+ * The API budget INCLUDED in one lesson — a hard cap. A normal lesson plus up
+ * to ~5 mistakes' worth of extra adaptive practice fits inside this; the student
+ * is never asked for more stars until a lesson goes beyond it. It is also the
+ * unit we use to show a balance as "≈ N lessons". Worst-case measured cost of a
+ * rich, voice-every-turn, 5-mistake lesson is ≈ $0.60, so $0.75 leaves headroom.
+ */
+export const LESSON_BUDGET_USD = 0.75;
+
+/** How many mistakes are included in a lesson's price before it counts as
+ *  "overusage" (used only for friendly messaging — the hard limit is the budget). */
+export const INCLUDED_MISTAKES = 5;
+
+/** Give every new student ONE free lesson (best conversion hook). The free
+ *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
+ *  recovered on the student's first purchase. Flip to false to require payment
+ *  from the very first lesson. */
+export const FREE_TRIAL_ENABLED = true;
 
 /**
- * Top-up packages. `allowanceUsd` = how much API the student may burn; profit =
- * stars × STAR_NET_USD − allowanceUsd (always > 0 here). Bigger packs give more
- * allowance per star = cheaper lessons, which nudges students toward packages.
+ * Top-up packages. A package grants `lessons × LESSON_BUDGET_USD` of API
+ * allowance — the most a student can ever burn. Bigger packs cost fewer stars
+ * per lesson (120 → 90 → 75), which makes the big pack clearly the best deal.
  */
 export interface StarPackage {
   id: string;
   stars: number;
+  /** Advertised lessons — the guaranteed MINIMUM (a frugal lesson costs less,
+   *  so students often get more). */
+  lessons: number;
+  /** API allowance granted = lessons × LESSON_BUDGET_USD. */
   allowanceUsd: number;
+  /** Short Russian label for the buy menu and the Stars invoice. */
   title: string;
 }
 
-// Each package's profit = stars × STAR_NET_USD − allowanceUsd, all > 0:
-//   single 100⭐→$1.30 net − $0.70 = $0.60   (≈ 1 lesson  · 100⭐/lesson)
-//   pack   600⭐→$7.80 net − $5.50 = $2.30   (≈ 11 lessons ·  55⭐/lesson)
-//   big   1400⭐→$18.20 net − $13.00 = $5.20  (≈ 26 lessons ·  54⭐/lesson)
-// Bigger packs grant more allowance per star ⇒ cheaper per lesson ⇒ nudge to packages.
 export const PACKAGES: StarPackage[] = [
-  { id: "single", stars: 100, allowanceUsd: 0.7, title: "1 урок английского" },
-  { id: "pack", stars: 600, allowanceUsd: 5.5, title: "Пакет уроков (выгодно)" },
-  { id: "big", stars: 1400, allowanceUsd: 13.0, title: "Большой пакет (макс. выгода)" },
+  { id: "single", stars: 120, lessons: 1, allowanceUsd: 0.75, title: "1 урок" },
+  { id: "pack", stars: 900, lessons: 10, allowanceUsd: 7.5, title: "10 уроков · выгодно 🔥" },
+  { id: "big", stars: 2250, lessons: 30, allowanceUsd: 22.5, title: "30 уроков · лучшая цена" },
 ];
 
 export function packageById(id: string): StarPackage | undefined {
   return PACKAGES.find((p) => p.id === id);
 }
 
-/** Show a USD allowance as an approximate number of lessons. */
+/** Net USD a package is worth to us after Telegram's withdrawal cut. */
+export function packageNetUsd(p: StarPackage): number {
+  return p.stars * STAR_NET_USD;
+}
+
+/** Guaranteed profit on a package = what we receive − the most we let them burn. */
+export function packageProfitUsd(p: StarPackage): number {
+  return Math.round((packageNetUsd(p) - p.allowanceUsd) * 100) / 100;
+}
+
+/** Stars the student effectively pays per lesson (lower = better deal). */
+export function starsPerLesson(p: StarPackage): number {
+  return Math.round(p.stars / p.lessons);
+}
+
+/** Show a USD allowance as an approximate number of lessons (the guaranteed min). */
 export function approxLessons(balanceUsd: number): number {
-  return Math.max(0, Math.floor(balanceUsd / TYPICAL_LESSON_USD));
+  return Math.max(0, Math.floor(balanceUsd / LESSON_BUDGET_USD));
+}
+
+// ── Profit guarantee (checked at boot) ───────────────────────────────────────
+// A student can NEVER burn more API than `allowanceUsd` (spend is metered and the
+// lesson pauses at zero balance), and we receive `packageNetUsd` for the package.
+// So as long as allowance < net for every package, profit is mathematically
+// guaranteed regardless of lesson length, thinking tokens, mistakes, or retries.
+// If a package is ever mis-priced into a loss, crash at startup rather than sell it.
+for (const p of PACKAGES) {
+  if (p.allowanceUsd !== Math.round(p.lessons * LESSON_BUDGET_USD * 100) / 100) {
+    throw new Error(
+      `Package "${p.id}" allowance ($${p.allowanceUsd}) != lessons×budget ` +
+        `($${(p.lessons * LESSON_BUDGET_USD).toFixed(2)}).`,
+    );
+  }
+  if (p.allowanceUsd >= packageNetUsd(p)) {
+    throw new Error(
+      `Package "${p.id}" would sell at a LOSS: allowance $${p.allowanceUsd} ≥ ` +
+        `net $${packageNetUsd(p).toFixed(2)}. Raise stars or lower allowance.`,
+    );
+  }
 }
