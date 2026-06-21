@@ -91,7 +91,7 @@ HOW TO TEACH IT — follow this arc across several turns; do NOT skip to practic
 4. Finish only when the student can do every part of the goal correctly and consistently — including the types they struggled with at first. Give the student plenty of room to make mistakes (around ten is completely normal): each time, re-explain simply and give another of the same type until they get it. If they're still struggling after a lot of practice (roughly 30+ exchanges), don't loop forever: consolidate the key point, praise their effort, set "lessonComplete": true, and suggest doing this lesson again next time.
 Present the full explanation first; never ask the student to produce the target before you've taught it. End EVERY turn with one clear, SPECIFIC next step that tells the student exactly what to do and how (say it aloud / type it / choose an option) — never a vague «ответь». Set "expect" to match. Never leave them unsure what to do next.
 
-OUTPUT — respond with ONLY a raw JSON object: no code fences, no \`\`\`, no text before or after it. It MUST be valid JSON — inside every string value write any line break as \\n (escaped); NEVER put a real line break inside a string value (real line breaks corrupt the message). For example, a board with a table is one string: "board": "**Present Simple**\\n\\n| Subject | Verb |\\n|---|---|\\n| I | work |".
+OUTPUT — respond with ONLY a raw JSON object: no code fences, no \`\`\`, no text before or after it. It MUST be valid JSON — inside every string value write any line break as \\n (escaped) and NEVER put a real line break inside a string value; and to quote an English word inside your speech use single quotes 'like this' (never raw double-quotes inside a value — they corrupt the JSON). For example, a board with a table is one string: "board": "**Present Simple**\\n\\n| Subject | Verb |\\n|---|---|\\n| I | work |".
 {
   "say": string,                 // what you SAY OUT LOUD (becomes a voice message). Natural spoken language, no markdown. Speak any correction of the student here, kindly.
   "board": string | null,         // text to SHOW on screen — the English word/sentence to read, or a written-exercise prompt. null on pure speaking turns. Keep it short.
@@ -155,9 +155,11 @@ function extractJsonCandidate(raw: string): string {
  * Turn the model's reply into a TutorReply. Robust by design: the model often
  * emits multi-line `board` values with real line breaks (invalid JSON) or gets
  * truncated, so strict JSON.parse fails — in that case we salvage each field by
- * regex. A leaked raw-JSON blob is NEVER shown/spoken to the student.
+ * regex. Returns null when no usable `say` can be extracted, so the caller can
+ * retry the generation instead of ever showing a raw-JSON blob or a confusing
+ * "could you repeat?" line (which, if shown, poisons the history).
  */
-function parseReply(raw: string, native: string): TutorReply {
+function parseReply(raw: string): TutorReply | null {
   const candidate = extractJsonCandidate(raw);
   let obj: Partial<TutorReply> | null = null;
   try {
@@ -208,14 +210,10 @@ function parseReply(raw: string, native: string): TutorReply {
 
   const image = looksLikeJson(imageStr) ? null : imageStr;
   const board = looksLikeJson(boardStr) ? null : boardStr;
-  const fallback =
-    native.toLowerCase() === "english"
-      ? "One sec — let's try that again. Could you repeat your last answer?"
-      : "Секундочку, давай ещё раз. Повтори, пожалуйста, свой ответ.";
-  const say = !sayStr || looksLikeJson(sayStr) ? fallback : sayStr;
+  if (!sayStr || looksLikeJson(sayStr)) return null; // unusable — caller retries
 
   return {
-    say,
+    say: sayStr,
     board,
     image,
     imageAsk: (obj ? Boolean(obj.imageAsk) : /"imageAsk"\s*:\s*true/.test(raw)) && image !== null,
@@ -245,15 +243,26 @@ export async function getTutorReply(
     messages.unshift({ role: "user", content: "Let's start the lesson." });
   }
   if (nudge) messages.push({ role: "user", content: nudge });
-  const result = await callClaude({
-    system: buildSystemPrompt(profile, lesson),
-    messages,
-    maxTokens: 1200,
-    temperature: 0.6,
-    cacheSystem: true,
-  });
+  const system = buildSystemPrompt(profile, lesson);
+  const call = () =>
+    callClaude({ system, messages, maxTokens: 1200, temperature: 0.6, cacheSystem: true });
+
+  const result = await call();
   if (!result) return null;
-  return { reply: parseReply(result.text, profile.nativeLanguage || "Russian"), costUsd: result.costUsd };
+  let reply = parseReply(result.text);
+  let costUsd = result.costUsd;
+  // Most parse failures are a single bad generation (e.g. an unescaped quote/newline
+  // breaking the JSON). Retry once before giving up — never show a "repeat?" fallback,
+  // which would land in history and make the model echo it.
+  if (!reply) {
+    const retry = await call();
+    if (retry) {
+      costUsd += retry.costUsd;
+      reply = parseReply(retry.text);
+    }
+  }
+  if (!reply) return null; // give up cleanly; the bot shows a "try again" and history stays clean
+  return { reply, costUsd };
 }
 
 /**
@@ -300,7 +309,8 @@ export async function describeImageTurn(
     cacheSystem: true,
   });
   if (!result) return null;
-  const reply = parseReply(result.text, profile.nativeLanguage || "Russian");
+  const reply = parseReply(result.text);
+  if (!reply) return null;
   // The picture is already on screen; never re-trigger generation from this turn.
   reply.image = null;
   reply.imageAsk = false;

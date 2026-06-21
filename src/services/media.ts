@@ -147,7 +147,7 @@ async function tryImageModel(model: string, prompt: string): Promise<Uint8Array 
 
 // Known-good current models to fall back through if the configured one isn't enabled
 // on the key (Gemini flash-image via generateContent; Imagen via :predict).
-const IMAGE_MODEL_FALLBACKS = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
+const IMAGE_MODEL_FALLBACKS = ["gemini-2.5-flash-image", "gemini-3.1-flash-image"];
 let workingImageModel: string | null = null; // remembered after the first success
 let imageFailStreak = 0;
 let imageGenOff = false; // tripped after repeated total failures (reset on restart)
