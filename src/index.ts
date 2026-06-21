@@ -68,6 +68,18 @@ bot.use(async (ctx, next) => {
     } catch (err) {
       console.error("loadUser failed:", err);
     }
+    // One-time per session: clear any stale custom reply keyboard left on this
+    // chat by a previous bot. Only for already-connected users (new users never
+    // had it). Best-effort — never block the update.
+    if (ctx.chat && ctx.session.role) {
+      try {
+        await ctx.api.sendMessage(ctx.chat.id, t(ctx.session.lang, "kb_removed"), {
+          reply_markup: { remove_keyboard: true },
+        });
+      } catch {
+        /* ignore */
+      }
+    }
   }
   await next();
 });

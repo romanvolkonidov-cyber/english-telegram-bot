@@ -19,9 +19,13 @@ export async function startCommand(ctx: BotContext): Promise<void> {
     await showMainMenu(ctx);
     return;
   }
-  // Not logged in → begin the login flow.
+  // Not logged in → begin the login flow. Also clear any stale custom keyboard
+  // left on this chat by a previous bot (remove_keyboard rides the welcome msg).
   ctx.session.flow = { kind: "login", step: "username" };
-  await ctx.reply(t(lang, "welcome"), { parse_mode: "HTML" });
+  await ctx.reply(t(lang, "welcome"), {
+    parse_mode: "HTML",
+    reply_markup: { remove_keyboard: true },
+  });
   await ctx.reply(t(lang, "ask_username"), { parse_mode: "HTML" });
 }
 

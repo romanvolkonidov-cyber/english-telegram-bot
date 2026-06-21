@@ -38,6 +38,7 @@ const en = {
   menu_learn: "🤖 AI English tutor",
   menu_language: "🌐 Language",
   menu_logout: "🚪 Log out",
+  kb_removed: "🧹 Tidied up the old menu — just use the buttons in the chat.",
 
   // ── homework list ──
   hw_list_title: "📚 <b>Your homework</b>",
@@ -171,6 +172,7 @@ const ru: Record<TranslationKey, string> = {
   menu_learn: "🤖 ИИ-репетитор английского",
   menu_language: "🌐 Язык",
   menu_logout: "🚪 Выйти",
+  kb_removed: "🧹 Убрал старое меню — просто пользуйся кнопками в чате.",
 
   hw_list_title: "📚 <b>Ваши домашние задания</b>",
   hw_none: "🎉 Сейчас нет невыполненных заданий. Отличная работа!",

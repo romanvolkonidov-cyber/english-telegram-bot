@@ -311,8 +311,8 @@ const A2_TOPICS: Omit<Topic, "level">[] = [
     lessons: [
       { id: "13.1", title: "Personal information", focus: "vocabulary", canDo: "I can give and ask for personal information.", vocab: ["address", "email address", "phone number", "date of birth"] },
       { id: "13.2", title: "Physical descriptions", focus: "vocabulary", canDo: "I can describe how someone looks.", vocab: ["tall", "thin", "young", "blue eyes", "long hair"] },
-      { id: "13.3", title: "Simple present: +", focus: "grammar", canDo: "I can say what people do (I/you/we/they).", grammar: "simple present affirmative", note: "habits/facts: I work, they live." },
-      { id: "13.4", title: "He/she/it & negative", focus: "grammar", canDo: "I can use -s and don't/doesn't.", grammar: "simple present he/she/it (-s) and negative", note: "She works / He doesn't work." },
+      { id: "13.3", title: "Simple present: statements", focus: "grammar", canDo: "I can say what people do, using -s for he/she/it.", grammar: "simple present affirmative — ALL persons (I/you/we/they + base verb; he/she/it + verb-s)", note: "Teach the whole affirmative: I/you/we/they work, BUT he/she/it works. Cover the -s spelling: work→works, study→studies, watch→watches." },
+      { id: "13.4", title: "Simple present: negative", focus: "grammar", canDo: "I can say what people don't do.", grammar: "simple present negative (don't / doesn't)", note: "I/you/we/they don't + base; he/she/it doesn't + base (He doesn't work)." },
       { id: "13.5", title: "be vs have to describe", focus: "grammar", canDo: "I can describe people with be and have.", grammar: "be / have for descriptions", note: "He is tall. He has blue eyes." },
       { id: "13.6", title: "Simple present: yes/no Q", focus: "grammar", canDo: "I can ask do/does questions about people.", grammar: "simple present yes/no questions", note: "Do you...? Does she...? + short answers." },
       { id: "13.7", title: "Wh- questions", focus: "grammar", canDo: "I can ask Wh- questions about people.", grammar: "simple present Wh- questions", note: "Where does he live? What do you do?" },

@@ -653,7 +653,20 @@ async function advance(
       // Grounding call failed — still show the picture with the original turn (no redraw).
       return await renderReply(ctx, first, bytes);
     }
-    // Couldn't draw it — fall through and render the turn without a picture.
+    // Image generation FAILED — don't render the "look at the picture" lead-in with no
+    // picture. Ask the tutor for a different, non-picture exercise and show that instead.
+    flow.history.push({
+      role: "student" as const,
+      text: "[system: the image could not be shown — give a DIFFERENT exercise without any picture, and do not mention a picture]",
+    });
+    const retry = await getTutorReply(profile, lc, flow.history);
+    flow.history.pop(); // drop the steering note; renderReply records the real turn
+    if (retry) {
+      retry.reply.image = null;
+      retry.reply.imageAsk = false;
+      return await renderReply(ctx, retry);
+    }
+    // Retry also failed (AI unreachable) — fall through.
   }
   await renderReply(ctx, first);
 }
