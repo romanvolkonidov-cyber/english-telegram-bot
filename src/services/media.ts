@@ -82,45 +82,101 @@ export async function synthesizeSpeech(text: string): Promise<Uint8Array | null>
   }
 }
 
-/** Generate a simple illustrative picture for a vocabulary word using Imagen; returns image bytes. */
-export async function generateImage(prompt: string): Promise<Uint8Array | null> {
-  if (!hasGemini || !prompt.trim()) return null;
-  try {
-    const res = await fetch(
-      `${GEN_URL}/${config.imagenImageModel}:generateContent?key=${config.geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text:
-                    `A clear, simple, friendly illustration for an English beginner's vocabulary flashcard: ${prompt}. ` +
-                    "Bright, clean, no text or words in the image.",
-                },
-              ],
-            },
-          ],
-          generationConfig: { responseModalities: ["IMAGE"] },
-        }),
-      },
-    );
-    if (!res.ok) {
-      console.error("Imagen generation error:", res.status, await res.text());
-      return null;
-    }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
-    };
-    const part = data.candidates?.[0]?.content?.parts?.find((p) =>
-      p.inlineData?.mimeType?.startsWith("image/"),
-    );
-    const b64 = part?.inlineData?.data;
-    return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
-  } catch (err) {
-    console.error("generateImage error:", err);
+/** Wrap a short description into a clean flashcard-style image prompt. */
+function imagePrompt(subject: string): string {
+  return (
+    `A clear, simple, friendly illustration for an English beginner's vocabulary flashcard: ${subject}. ` +
+    "Bright, clean, no text or words in the image."
+  );
+}
+
+/** Gemini "flash image" / "pro image" models — generateContent, image in inlineData. */
+async function genViaGemini(model: string, prompt: string): Promise<Uint8Array | null> {
+  const res = await fetch(`${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: imagePrompt(prompt) }] }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    }),
+  });
+  if (!res.ok) {
+    console.error(`Gemini image error (${model}):`, res.status, await res.text());
     return null;
   }
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+  };
+  const part = data.candidates?.[0]?.content?.parts?.find((p) =>
+    p.inlineData?.mimeType?.startsWith("image/"),
+  );
+  const b64 = part?.inlineData?.data;
+  return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
+}
+
+/** Imagen models — the :predict endpoint (different request/response shape from Gemini). */
+async function genViaImagen(model: string, prompt: string): Promise<Uint8Array | null> {
+  const res = await fetch(`${GEN_URL}/${model}:predict?key=${config.geminiApiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      instances: [{ prompt: imagePrompt(prompt) }],
+      parameters: { sampleCount: 1 },
+    }),
+  });
+  if (!res.ok) {
+    console.error(`Imagen error (${model}):`, res.status, await res.text());
+    return null;
+  }
+  const data = (await res.json()) as { predictions?: { bytesBase64Encoded?: string }[] };
+  const b64 = data.predictions?.[0]?.bytesBase64Encoded;
+  return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
+}
+
+/** Call the right API for a model id: imagen-* → :predict, otherwise generateContent. */
+async function tryImageModel(model: string, prompt: string): Promise<Uint8Array | null> {
+  try {
+    return model.toLowerCase().startsWith("imagen")
+      ? await genViaImagen(model, prompt)
+      : await genViaGemini(model, prompt);
+  } catch (err) {
+    console.error(`image model ${model} threw:`, err);
+    return null;
+  }
+}
+
+// Known-good current models to fall back through if the configured one isn't enabled
+// on the key (Gemini flash-image via generateContent; Imagen via :predict).
+const IMAGE_MODEL_FALLBACKS = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
+let workingImageModel: string | null = null; // remembered after the first success
+let imageFailStreak = 0;
+let imageGenOff = false; // tripped after repeated total failures (reset on restart)
+
+/**
+ * Generate a simple illustrative picture; returns image bytes, or null if image
+ * generation isn't available. Tries the configured model (IMAGEN_IMAGE_MODEL —
+ * may be an imagen-* or a gemini-*-image id), then known-good fallbacks, and
+ * remembers whichever works so later calls are direct.
+ */
+export async function generateImage(prompt: string): Promise<Uint8Array | null> {
+  if (!hasGemini || !prompt.trim() || imageGenOff) return null;
+  const candidates = [workingImageModel, config.imagenImageModel, ...IMAGE_MODEL_FALLBACKS].filter(
+    (m, i, a): m is string => !!m && a.indexOf(m) === i,
+  );
+  for (const model of candidates) {
+    const img = await tryImageModel(model, prompt);
+    if (img) {
+      if (workingImageModel !== model) {
+        workingImageModel = model;
+        console.log(`[media] image model in use: ${model}`);
+      }
+      imageFailStreak = 0;
+      return img;
+    }
+  }
+  if (++imageFailStreak >= 3) {
+    imageGenOff = true;
+    console.error("[media] image generation unavailable on this key — disabling for this run.");
+  }
+  return null;
 }

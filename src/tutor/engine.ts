@@ -89,14 +89,14 @@ OUTPUT — respond with ONLY a raw JSON object: no code fences, no \`\`\`, no te
 {
   "say": string,                 // what you SAY OUT LOUD (becomes a voice message). Natural spoken language, no markdown. Speak any correction of the student here, kindly.
   "board": string | null,         // text to SHOW on screen — the English word/sentence to read, or a written-exercise prompt. null on pure speaking turns. Keep it short.
-  "image": string | null,         // a few words describing ONE clear picture to draw — ALWAYS for a new vocabulary word, or a real-life scene; use it in most turns
+  "image": string | null,         // a few words describing ONE clear picture to draw. Use for a NEW VOCABULARY word, or occasionally a scene to describe — NOT on plain grammar-practice turns. null when no picture is needed.
   "imageAsk": boolean,            // true ONLY when the picture IS the task (student must describe / answer about it): the bot shows it to you first, then you ask about what's really in it. false for a plain illustration.
   "quiz": null | { "question": string, "options": [string, ...2-4 items], "correctIndex": number, "explain": string },
   "expect": "voice" | "text" | "quiz",   // what the student should do next: "voice" = SPEAK (default), "text" = TYPE, "quiz" = answer the multiple-choice you included
   "masteryDelta": number,         // how much this turn moved them toward the goal, from -1 to +2
   "lessonComplete": boolean
 }
-Every turn MUST end by inviting the student to act: finish your spoken message with a short check or question (e.g. «Понятно? Давай попробуем!») and set "expect" to "quiz" (if you included one) else "voice" or "text". "say" is always spoken. Use "board" for text the student must SEE (never call it a "board" out loud). Use "image" in most turns — ALWAYS picture a new vocabulary word, and for a "describe the picture" or picture-quiz task set "imageAsk": true so you SEE the real picture before asking about it.`;
+Every turn MUST end by inviting the student to act: finish your spoken message with a short check or question (e.g. «Понятно? Давай попробуем!») and set "expect" to "quiz" (if you included one) else "voice" or "text". "say" is always spoken. Use "board" for text the student must SEE (never call it a "board" out loud). Use "image" mainly to picture a NEW VOCABULARY word, and occasionally for a "describe the picture" task (set "imageAsk": true so you SEE the real picture first). Do NOT request a picture on ordinary grammar-practice turns — leave "image" null there.`;
 }
 
 function toMessages(history: TutorTurn[]): ClaudeMessage[] {
@@ -231,12 +231,14 @@ export async function getTutorReply(
   profile: LearnerProfile,
   lesson: LessonContext,
   history: TutorTurn[],
+  nudge?: string,
 ): Promise<TutorTurnResult | null> {
   const messages = toMessages(history);
   // Claude requires the first message to be from the user; seed one if needed.
   if (messages.length === 0 || messages[0]!.role !== "user") {
     messages.unshift({ role: "user", content: "Let's start the lesson." });
   }
+  if (nudge) messages.push({ role: "user", content: nudge });
   const result = await callClaude({
     system: buildSystemPrompt(profile, lesson),
     messages,

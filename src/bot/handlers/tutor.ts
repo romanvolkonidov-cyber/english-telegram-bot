@@ -660,14 +660,15 @@ async function advance(
       // Grounding call failed — still show the picture with the original turn (no redraw).
       return await renderReply(ctx, first, bytes);
     }
-    // Image generation FAILED — don't render the "look at the picture" lead-in with no
-    // picture. Ask the tutor for a different, non-picture exercise and show that instead.
-    flow.history.push({
-      role: "student" as const,
-      text: "[system: the image could not be shown — give a DIFFERENT exercise without any picture, and do not mention a picture]",
-    });
-    const retry = await getTutorReply(profile, lc, flow.history);
-    flow.history.pop(); // drop the steering note; renderReply records the real turn
+    // Image generation FAILED. Don't render the "look at the picture" lead-in (there is
+    // no picture). Retry once with a one-off nudge (NOT stored in history) so the tutor
+    // first responds to the student's last answer, then gives a non-picture exercise.
+    const retry = await getTutorReply(
+      profile,
+      lc,
+      flow.history,
+      "[The picture could not be shown this time. Do NOT use or mention a picture. First respond to the student's last answer above (praise/correct it), then give a normal spoken or written exercise.]",
+    );
     if (retry) {
       retry.reply.image = null;
       retry.reply.imageAsk = false;
