@@ -69,10 +69,11 @@ export const config = {
   awsWorkspaceId: (process.env.ANTHROPIC_AWS_WORKSPACE_ID || "").trim(),
   awsRegion: (process.env.AWS_REGION || "us-east-1").trim(),
 
-  /** Gemini models for the tutor's voice (TTS) and vocabulary images — reuse GEMINI_API. */
+  /** Gemini model for the tutor's voice (TTS) — reuses GEMINI_API. */
   geminiTtsModel: (process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts").trim(),
   geminiTtsVoice: (process.env.GEMINI_TTS_VOICE || "Kore").trim(),
-  geminiImageModel: (process.env.GEMINI_IMAGE_MODEL || "gemini-2.0-flash-preview-image-generation").trim(),
+  /** Imagen model for vocabulary image generation — reuses GEMINI_API. */
+  imagenImageModel: (process.env.IMAGEN_IMAGE_MODEL || "imagen-3.0-generate-001").trim(),
 
   /** Teacher login used inside the bot. Defaults match the website. */
   adminUsername: (process.env.ADMIN_USERNAME || "admin").trim(),

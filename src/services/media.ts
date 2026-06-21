@@ -3,11 +3,11 @@ import ffmpegPath from "ffmpeg-static";
 import { config, hasGemini } from "../config.js";
 
 /**
- * Voice and image generation for the /learn tutor, both via the Gemini API
- * (reusing GEMINI_API — no extra key). Telegram voice notes must be OGG/Opus,
- * so the raw PCM that Gemini TTS returns is transcoded with a bundled static
- * ffmpeg. Every function degrades gracefully to null on any failure, so the
- * lesson always continues with text even if media is unavailable.
+ * Voice and image generation for the /learn tutor — Gemini for TTS and Imagen
+ * for image generation (both reusing GEMINI_API — no extra key). Telegram voice
+ * notes must be OGG/Opus, so the raw PCM that Gemini TTS returns is transcoded
+ * with a bundled static ffmpeg. Every function degrades gracefully to null on any
+ * failure, so the lesson always continues with text even if media is unavailable.
  */
 
 const GEN_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -82,12 +82,12 @@ export async function synthesizeSpeech(text: string): Promise<Uint8Array | null>
   }
 }
 
-/** Generate a simple illustrative picture for a vocabulary word; returns image bytes. */
+/** Generate a simple illustrative picture for a vocabulary word using Imagen; returns image bytes. */
 export async function generateImage(prompt: string): Promise<Uint8Array | null> {
   if (!hasGemini || !prompt.trim()) return null;
   try {
     const res = await fetch(
-      `${GEN_URL}/${config.geminiImageModel}:generateContent?key=${config.geminiApiKey}`,
+      `${GEN_URL}/${config.imagenImageModel}:generateContent?key=${config.geminiApiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,12 +103,12 @@ export async function generateImage(prompt: string): Promise<Uint8Array | null> 
               ],
             },
           ],
-          generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+          generationConfig: { responseModalities: ["IMAGE"] },
         }),
       },
     );
     if (!res.ok) {
-      console.error("Gemini image error:", res.status, await res.text());
+      console.error("Imagen generation error:", res.status, await res.text());
       return null;
     }
     const data = (await res.json()) as {
