@@ -47,13 +47,17 @@ function pcmToOgg(pcm: Buffer, sampleRate: number): Promise<Uint8Array | null> {
 
 /** One TTS attempt on a specific model → Ogg/Opus bytes, or null. */
 async function ttsOnce(model: string, text: string): Promise<Uint8Array | null> {
+  // Prepend a clear directive so the TTS prompt-classifier fires correctly.
+  // Without it, "gemini-2.5-flash-preview-tts" occasionally returns 400
+  // "Model tried to generate text" when the classifier doesn't activate.
+  const ttsText = `Read aloud: ${text}`;
   const res = await fetchWithRetry(
     `${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text }] }],
+        contents: [{ parts: [{ text: ttsText }] }],
         generationConfig: {
           responseModalities: ["AUDIO"],
           speechConfig: {
@@ -77,7 +81,7 @@ async function ttsOnce(model: string, text: string): Promise<Uint8Array | null> 
 
 // Alternate TTS models to fall back to when the primary returns a sustained 500
 // (Google's TTS endpoints have transient INTERNAL spells). All reuse GEMINI_API.
-const TTS_MODEL_FALLBACKS = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview"];
+const TTS_MODEL_FALLBACKS = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts", "gemini-3.1-flash-tts-preview"];
 let workingTtsModel: string | null = null;
 
 /** Speak a short sentence; returns Ogg/Opus bytes for a Telegram voice note. Tries

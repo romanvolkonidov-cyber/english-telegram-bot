@@ -214,9 +214,9 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<ClaudeResult | null> {
       "content-type": "application/json",
     },
     {
-      model: config.claudeModel, // bare first-party id, e.g. claude-sonnet-4-6
+      model: config.claudeModel, // bare first-party id, e.g. claude-opus-4-8
       max_tokens: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0.6,
+      // temperature omitted — claude-opus-4-8 and later deprecate this parameter
       system,
       messages: opts.messages, // AWS gateway does not support assistant prefill
     },
