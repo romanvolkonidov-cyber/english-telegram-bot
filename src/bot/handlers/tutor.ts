@@ -416,11 +416,11 @@ export async function startLesson(
       `${topic.target} ${topic.level}: ${topic.title} — ${lesson.title} ` +
       `(topic=${topicId}, lesson=${lessonId}, ${free ? "free/admin" : "paid"})`,
   });
-  await think(ctx);
-
+  const stopThinking = keepThinking(ctx);
   const profile = await ensureProfile(ctx);
   const flow = tutorFlow(ctx);
   if (flow) await advance(ctx, flow, profile, lesson);
+  else stopThinking();
 }
 
 /** Send a chat action every 4 s until the returned stop function is called.
@@ -863,7 +863,7 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
   }
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
 
-  await think(ctx);
+  const stopTranscribe = keepThinking(ctx);
   let transcript: string | null = null;
   try {
     const file = await ctx.getFile();
@@ -873,6 +873,8 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
     }
   } catch (err) {
     console.error("tutor voice failed:", err);
+  } finally {
+    stopTranscribe();
   }
 
   if (!transcript) {
