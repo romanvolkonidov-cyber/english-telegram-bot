@@ -900,14 +900,12 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
       return;
     }
     const rendered = await advance(ctx, flow, profile, lesson);
-    if (!rendered) flow.history.splice(historyLen);
+    if (!rendered) {
+      flow.history.splice(historyLen);
+      await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
+    }
   } finally {
     stopThinking();
-  }
-}
-  if (!rendered) {
-    flow.history.splice(historyLen);
-    await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
   }
 }
 
