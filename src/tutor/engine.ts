@@ -260,10 +260,18 @@ function parseReply(raw: string): TutorReply | null {
 
   const image = looksLikeJson(imageStr) ? null : imageStr;
   const board = looksLikeJson(boardStr) ? null : boardStr;
-  if (!sayStr || looksLikeJson(sayStr)) return null; // unusable — caller retries
+
+  // Last resort: if Claude returned plain prose (no JSON keys at all), use the
+  // raw text as the spoken message so the lesson doesn't stall with an error.
+  const isPlainProse =
+    !raw.trimStart().startsWith("{") &&
+    !/("say"|"board"|"expect"|"masteryDelta"|"lessonComplete")\s*:/.test(raw);
+  const finalSay = sayStr ?? (isPlainProse ? raw.trim().slice(0, 1000) : null);
+
+  if (!finalSay || looksLikeJson(finalSay)) return null; // unusable — caller retries
 
   return {
-    say: sayStr,
+    say: finalSay,
     board,
     image,
     imageAsk: (obj ? Boolean(obj.imageAsk) : /"imageAsk"\s*:\s*true/.test(raw)) && image !== null,
@@ -293,6 +301,12 @@ export async function getTutorReply(
     messages.unshift({ role: "user", content: "Let's start the lesson." });
   }
   if (nudge) messages.push({ role: "user", content: nudge });
+  // Remind the model to respond with JSON on every turn — plain prose is a
+  // known failure mode when the long system prompt is served from cache.
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg && typeof lastMsg.content === "string") {
+    lastMsg.content += "\n\n[Respond with ONLY a valid JSON object as specified in the system prompt.]";
+  }
   const system = buildSystemPrompt(profile, lesson);
 
   // Retry BOTH transient API failures (overload/network) AND unparseable generations
@@ -307,6 +321,7 @@ export async function getTutorReply(
       maxTokens: 1200,
       temperature: attempt === 0 ? 0.6 : 0.3, // calmer sampling on a retry → cleaner JSON
       cacheSystem: true,
+      prefill: "{",
     });
     // callClaude already retried transient API errors internally; a null here means a
     // genuine outage, so we stop rather than hammer it.
@@ -315,7 +330,8 @@ export async function getTutorReply(
       return null;
     }
     costUsd += result.costUsd;
-    const reply = parseReply(result.text);
+    // The API returns only what Claude generated AFTER the prefill — prepend it back.
+    const reply = parseReply("{" + result.text);
     if (reply) return { reply, costUsd };
     // The model replied but the JSON didn't parse — a fresh sample almost always fixes it.
     console.error(

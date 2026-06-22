@@ -27,6 +27,8 @@ export interface ClaudeCall {
   temperature?: number;
   /** Cache the (large, stable) system prompt — supported on Anthropic & AWS. */
   cacheSystem?: boolean;
+  /** Assistant turn prefill: Claude MUST continue from this string (e.g. "{" forces JSON). */
+  prefill?: string;
 }
 
 export interface ClaudeResult {
@@ -129,6 +131,11 @@ async function postMessages(
   return null;
 }
 
+function withPrefill(messages: ClaudeMessage[], prefill?: string): ClaudeMessage[] {
+  if (!prefill) return messages;
+  return [...messages, { role: "assistant", content: prefill }];
+}
+
 async function callBedrock(opts: ClaudeCall): Promise<ClaudeResult | null> {
   if (!config.bedrockModelId) {
     console.error("Bedrock is configured but BEDROCK_MODEL_ID is empty.");
@@ -149,7 +156,7 @@ async function callBedrock(opts: ClaudeCall): Promise<ClaudeResult | null> {
       max_tokens: opts.maxTokens ?? 1024,
       temperature: opts.temperature ?? 0.6,
       system: opts.system,
-      messages: opts.messages,
+      messages: withPrefill(opts.messages, opts.prefill),
     },
     "Bedrock",
   );
@@ -171,7 +178,7 @@ async function callAnthropic(opts: ClaudeCall): Promise<ClaudeResult | null> {
       max_tokens: opts.maxTokens ?? 1024,
       temperature: opts.temperature ?? 0.6,
       system,
-      messages: opts.messages,
+      messages: withPrefill(opts.messages, opts.prefill),
     },
     "Claude",
   );
@@ -195,7 +202,7 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<ClaudeResult | null> {
       max_tokens: opts.maxTokens ?? 1024,
       temperature: opts.temperature ?? 0.6,
       system,
-      messages: opts.messages,
+      messages: withPrefill(opts.messages, opts.prefill),
     },
     "Claude (AWS)",
   );

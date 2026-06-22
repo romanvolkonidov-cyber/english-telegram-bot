@@ -423,13 +423,16 @@ export async function startLesson(
   if (flow) await advance(ctx, flow, profile, lesson);
 }
 
-/** Show a typing indicator (best-effort). */
-async function think(ctx: BotContext): Promise<void> {
-  try {
-    await ctx.replyWithChatAction("typing");
-  } catch {
-    /* non-fatal */
-  }
+/** Send a chat action every 4 s until the returned stop function is called.
+ *  Telegram actions expire after 5 s, so a single send vanishes long before Claude
+ *  or TTS finishes. Returns a cleanup fn — always call it in a finally block. */
+function keepThinking(
+  ctx: BotContext,
+  action: Parameters<typeof ctx.replyWithChatAction>[0] = "typing",
+): () => void {
+  ctx.replyWithChatAction(action).catch(() => {});
+  const id = setInterval(() => ctx.replyWithChatAction(action).catch(() => {}), 4000);
+  return () => clearInterval(id);
 }
 
 /** Send already-generated picture bytes. Returns true if it went through. */
@@ -453,11 +456,7 @@ async function sendPhotoBytes(ctx: BotContext, image: GeneratedImage): Promise<b
 
 /** Generate and send an illustrative picture. Returns true if one was sent. */
 async function sendImage(ctx: BotContext, prompt: string): Promise<boolean> {
-  try {
-    await ctx.replyWithChatAction("upload_photo");
-  } catch {
-    /* non-fatal */
-  }
+  const stop = keepThinking(ctx, "upload_photo");
   try {
     const img = await generateImage(prompt);
     if (img) return await sendPhotoBytes(ctx, img);
@@ -476,6 +475,8 @@ async function sendImage(ctx: BotContext, prompt: string): Promise<boolean> {
       err,
       onlyForStudents: true,
     });
+  } finally {
+    stop();
   }
   return false;
 }
@@ -595,11 +596,7 @@ async function askOverageConsent(ctx: BotContext): Promise<void> {
 /** Speak text as a voice note (the primary channel). Returns true if sent. */
 async function speak(ctx: BotContext, text: string): Promise<boolean> {
   if (!text.trim()) return false;
-  try {
-    await ctx.replyWithChatAction("record_voice");
-  } catch {
-    /* non-fatal */
-  }
+  const stop = keepThinking(ctx, "record_voice");
   try {
     const ogg = await synthesizeSpeech(text);
     if (ogg) {
@@ -608,6 +605,8 @@ async function speak(ctx: BotContext, text: string): Promise<boolean> {
     }
   } catch (err) {
     console.error("tutor voice failed:", err);
+  } finally {
+    stop();
   }
   return false;
 }
@@ -728,12 +727,9 @@ async function advance(
   if (!first) return await renderReply(ctx, null);
 
   if (first.reply.imageAsk && first.reply.image) {
-    try {
-      await ctx.replyWithChatAction("upload_photo");
-    } catch {
-      /* non-fatal */
-    }
+    const stopUpload = keepThinking(ctx, "upload_photo");
     const gen = await generateImage(first.reply.image).catch(() => null);
+    stopUpload();
     if (gen) {
       // Let the tutor look at the ACTUAL picture (declaring its real MIME type so the
       // vision model accepts it), then ask about what it really shows.
@@ -825,15 +821,19 @@ export async function tutorOnText(ctx: BotContext, text: string): Promise<void> 
   const historyLen = flow.history.length;
   flow.history.push({ role: "student", text: text.trim() });
   if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
-  await think(ctx);
-  const profile = await ensureProfile(ctx);
-  const lesson = getLesson(flow.topicId, flow.lessonId);
-  if (!lesson) {
-    flow.history.splice(historyLen);
-    return;
+  const stopThinking = keepThinking(ctx);
+  try {
+    const profile = await ensureProfile(ctx);
+    const lesson = getLesson(flow.topicId, flow.lessonId);
+    if (!lesson) {
+      flow.history.splice(historyLen);
+      return;
+    }
+    const rendered = await advance(ctx, flow, profile, lesson);
+    if (!rendered) flow.history.splice(historyLen);
+  } finally {
+    stopThinking();
   }
-  const rendered = await advance(ctx, flow, profile, lesson);
-  if (!rendered) flow.history.splice(historyLen);
 }
 
 export async function tutorOnVoice(ctx: BotContext): Promise<void> {
@@ -890,14 +890,21 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
   const historyLen = flow.history.length;
   flow.history.push({ role: "student", text: `[spoken aloud] ${transcript}` });
   if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
-  const profile = await ensureProfile(ctx);
-  const lesson = getLesson(flow.topicId, flow.lessonId);
-  if (!lesson) {
-    flow.history.splice(historyLen);
-    await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
-    return;
+  const stopThinking = keepThinking(ctx);
+  try {
+    const profile = await ensureProfile(ctx);
+    const lesson = getLesson(flow.topicId, flow.lessonId);
+    if (!lesson) {
+      flow.history.splice(historyLen);
+      await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
+      return;
+    }
+    const rendered = await advance(ctx, flow, profile, lesson);
+    if (!rendered) flow.history.splice(historyLen);
+  } finally {
+    stopThinking();
   }
-  const rendered = await advance(ctx, flow, profile, lesson);
+}
   if (!rendered) {
     flow.history.splice(historyLen);
     await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
@@ -941,11 +948,15 @@ export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promis
 
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
   if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
-  await think(ctx);
-  const profile = await ensureProfile(ctx);
-  const lesson = getLesson(flow.topicId, flow.lessonId);
-  if (!lesson) return;
-  await advance(ctx, flow, profile, lesson);
+  const stopThinking = keepThinking(ctx);
+  try {
+    const profile = await ensureProfile(ctx);
+    const lesson = getLesson(flow.topicId, flow.lessonId);
+    if (!lesson) return;
+    await advance(ctx, flow, profile, lesson);
+  } finally {
+    stopThinking();
+  }
 }
 
 /** Continue a lesson past its included budget after the student agreed (lrn:over). */
@@ -953,11 +964,15 @@ export async function tutorOverageContinue(ctx: BotContext): Promise<void> {
   const flow = tutorFlow(ctx);
   if (!flow) return await showTopics(ctx);
   flow.overageOk = true; // draw the extra from balance for the rest of this lesson
-  await think(ctx);
-  const profile = await ensureProfile(ctx);
-  const lesson = getLesson(flow.topicId, flow.lessonId);
-  if (!lesson) return;
-  await advance(ctx, flow, profile, lesson); // the student's turn is already in history
+  const stopThinking = keepThinking(ctx);
+  try {
+    const profile = await ensureProfile(ctx);
+    const lesson = getLesson(flow.topicId, flow.lessonId);
+    if (!lesson) return;
+    await advance(ctx, flow, profile, lesson); // the student's turn is already in history
+  } finally {
+    stopThinking();
+  }
 }
 
 /** "Next lesson" after completing one. */

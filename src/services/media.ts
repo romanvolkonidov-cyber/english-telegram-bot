@@ -64,7 +64,7 @@ export async function synthesizeSpeech(text: string): Promise<Uint8Array | null>
           },
         }),
       },
-      { label: "Gemini TTS", timeoutMs: 30_000 },
+      { label: "Gemini TTS", attempts: 2, timeoutMs: 30_000 },
     );
     if (!res) return null;
     const data = (await res.json()) as {
