@@ -45,40 +45,64 @@ function pcmToOgg(pcm: Buffer, sampleRate: number): Promise<Uint8Array | null> {
   });
 }
 
-/** Speak a short English sentence; returns Ogg/Opus bytes for a Telegram voice note. */
+/** One TTS attempt on a specific model → Ogg/Opus bytes, or null. */
+async function ttsOnce(model: string, text: string): Promise<Uint8Array | null> {
+  const res = await fetchWithRetry(
+    `${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: config.geminiTtsVoice } },
+          },
+        },
+      }),
+    },
+    { label: `Gemini TTS (${model})`, attempts: 2, timeoutMs: 30_000 },
+  );
+  if (!res) return null;
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+  };
+  const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+  const b64 = part?.inlineData?.data;
+  if (!b64) return null;
+  const rate = Number(part?.inlineData?.mimeType?.match(/rate=(\d+)/)?.[1]) || 24000;
+  return await pcmToOgg(Buffer.from(b64, "base64"), rate);
+}
+
+// Alternate TTS models to fall back to when the primary returns a sustained 500
+// (Google's TTS endpoints have transient INTERNAL spells). All reuse GEMINI_API.
+const TTS_MODEL_FALLBACKS = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview"];
+let workingTtsModel: string | null = null;
+
+/** Speak a short sentence; returns Ogg/Opus bytes for a Telegram voice note. Tries
+ *  the configured model, then known-good fallbacks, so a model-specific outage
+ *  recovers to a different voice model instead of silently dropping to text. */
 export async function synthesizeSpeech(text: string): Promise<Uint8Array | null> {
   if (!hasGemini || !text.trim()) return null;
-  try {
-    const res = await fetchWithRetry(
-      `${GEN_URL}/${config.geminiTtsModel}:generateContent?key=${config.geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: config.geminiTtsVoice } },
-            },
-          },
-        }),
-      },
-      { label: "Gemini TTS", attempts: 2, timeoutMs: 30_000 },
-    );
-    if (!res) return null;
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
-    };
-    const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
-    const b64 = part?.inlineData?.data;
-    if (!b64) return null;
-    const rate = Number(part?.inlineData?.mimeType?.match(/rate=(\d+)/)?.[1]) || 24000;
-    return await pcmToOgg(Buffer.from(b64, "base64"), rate);
-  } catch (err) {
-    console.error("synthesizeSpeech error:", err);
-    return null;
+  const candidates = [workingTtsModel, config.geminiTtsModel, ...TTS_MODEL_FALLBACKS].filter(
+    (m, i, a): m is string => !!m && a.indexOf(m) === i,
+  );
+  for (const model of candidates) {
+    try {
+      const ogg = await ttsOnce(model, text);
+      if (ogg) {
+        if (workingTtsModel !== model) {
+          workingTtsModel = model;
+          console.log(`[media] TTS model in use: ${model}`);
+        }
+        return ogg;
+      }
+    } catch (err) {
+      console.error(`TTS model ${model} threw:`, err);
+    }
   }
+  return null; // every model failed — caller shows the text instead
 }
 
 /** Wrap a short description into a clean flashcard-style image prompt. */

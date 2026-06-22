@@ -20,6 +20,11 @@ fi
 echo "📌 Deploying: $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
 
 if [ "${SKIP_TYPECHECK:-0}" != "1" ]; then
+  # Self-healing: if the TypeScript compiler isn't installed locally, fetch dev
+  # tools first so the gate works without manual setup (or skip with SKIP_TYPECHECK=1).
+  if [ ! -x node_modules/.bin/tsc ]; then
+    echo "🔧 Installing dev tools (first run only)..."; npm install
+  fi
   echo "🔎 Type-checking..."; npm run typecheck
 fi
 
