@@ -438,7 +438,7 @@ async function sendImage(ctx: BotContext, prompt: string): Promise<boolean> {
   }
   try {
     const img = await generateImage(prompt);
-    if (img) return await sendPhotoBytes(ctx, img);
+    if (img) return await sendPhotoBytes(ctx, img.bytes);
   } catch (err) {
     console.error("tutor image failed:", err);
   }
@@ -663,22 +663,24 @@ async function advance(
     } catch {
       /* non-fatal */
     }
-    const bytes = await generateImage(first.reply.image).catch(() => null);
-    if (bytes) {
-      // Let the tutor look at the actual picture, then ask about what it really shows.
+    const gen = await generateImage(first.reply.image).catch(() => null);
+    if (gen) {
+      // Let the tutor look at the ACTUAL picture (declaring its real MIME type so the
+      // vision model accepts it), then ask about what it really shows.
       const grounded = await describeImageTurn(
         profile,
         lc,
         flow.history,
-        bytes,
-        "image/png",
+        gen.bytes,
+        gen.mimeType,
         first.reply.image,
+        first.reply.say,
       );
       if (grounded) {
         await renderReply(
           ctx,
           { reply: grounded.reply, costUsd: first.costUsd + grounded.costUsd },
-          bytes,
+          gen.bytes,
         );
         // Leave a note of what the picture showed, so later turns keep the context.
         const last = flow.history[flow.history.length - 1];
@@ -686,7 +688,7 @@ async function advance(
         return;
       }
       // Grounding call failed — still show the picture with the original turn (no redraw).
-      return await renderReply(ctx, first, bytes);
+      return await renderReply(ctx, first, gen.bytes);
     }
     // Image generation FAILED. Don't render the "look at the picture" lead-in (there is
     // no picture). Retry once with a one-off nudge (NOT stored in history) so the tutor

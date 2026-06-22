@@ -90,8 +90,16 @@ function imagePrompt(subject: string): string {
   );
 }
 
+/** A generated picture plus its real MIME type. The type matters: some image
+ *  models return PNG and others JPEG, and when we later show the picture to the
+ *  vision model we must declare the CORRECT type or it may reject the image. */
+export interface GeneratedImage {
+  bytes: Uint8Array;
+  mimeType: string;
+}
+
 /** Gemini "flash image" / "pro image" models — generateContent, image in inlineData. */
-async function genViaGemini(model: string, prompt: string): Promise<Uint8Array | null> {
+async function genViaGemini(model: string, prompt: string): Promise<GeneratedImage | null> {
   const res = await fetch(`${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -111,11 +119,12 @@ async function genViaGemini(model: string, prompt: string): Promise<Uint8Array |
     p.inlineData?.mimeType?.startsWith("image/"),
   );
   const b64 = part?.inlineData?.data;
-  return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
+  if (!b64) return null;
+  return { bytes: new Uint8Array(Buffer.from(b64, "base64")), mimeType: part!.inlineData!.mimeType || "image/png" };
 }
 
 /** Imagen models — the :predict endpoint (different request/response shape from Gemini). */
-async function genViaImagen(model: string, prompt: string): Promise<Uint8Array | null> {
+async function genViaImagen(model: string, prompt: string): Promise<GeneratedImage | null> {
   const res = await fetch(`${GEN_URL}/${model}:predict?key=${config.geminiApiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -128,13 +137,17 @@ async function genViaImagen(model: string, prompt: string): Promise<Uint8Array |
     console.error(`Imagen error (${model}):`, res.status, await res.text());
     return null;
   }
-  const data = (await res.json()) as { predictions?: { bytesBase64Encoded?: string }[] };
-  const b64 = data.predictions?.[0]?.bytesBase64Encoded;
-  return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
+  const data = (await res.json()) as {
+    predictions?: { bytesBase64Encoded?: string; mimeType?: string }[];
+  };
+  const pred = data.predictions?.[0];
+  const b64 = pred?.bytesBase64Encoded;
+  if (!b64) return null;
+  return { bytes: new Uint8Array(Buffer.from(b64, "base64")), mimeType: pred?.mimeType || "image/png" };
 }
 
 /** Call the right API for a model id: imagen-* → :predict, otherwise generateContent. */
-async function tryImageModel(model: string, prompt: string): Promise<Uint8Array | null> {
+async function tryImageModel(model: string, prompt: string): Promise<GeneratedImage | null> {
   try {
     return model.toLowerCase().startsWith("imagen")
       ? await genViaImagen(model, prompt)
@@ -158,7 +171,7 @@ let imageGenOff = false; // tripped after repeated total failures (reset on rest
  * may be an imagen-* or a gemini-*-image id), then known-good fallbacks, and
  * remembers whichever works so later calls are direct.
  */
-export async function generateImage(prompt: string): Promise<Uint8Array | null> {
+export async function generateImage(prompt: string): Promise<GeneratedImage | null> {
   if (!hasGemini || !prompt.trim() || imageGenOff) return null;
   const candidates = [workingImageModel, config.imagenImageModel, ...IMAGE_MODEL_FALLBACKS].filter(
     (m, i, a): m is string => !!m && a.indexOf(m) === i,
