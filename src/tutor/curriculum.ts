@@ -550,6 +550,266 @@ const A2_TOPICS: Omit<Topic, "level" | "target">[] = [
   },
 ];
 
+/**
+ * Portuguese (Brazilian) A1 curriculum — a REAL Portuguese scope & sequence, not
+ * the English course relabeled. It follows how Portuguese is actually taught to
+ * beginners: noun gender and articles come early; the two "to be" verbs (ser vs
+ * estar) and ter (have) are central; regular verbs are grouped by -ar/-er/-ir;
+ * and Portuguese-specific points appear in order — estar com for states, gostar
+ * de, de/em/a contractions (do, na, ao), ter for age, ir + infinitive for the
+ * near future, the gerund (estar + -ando/-endo/-indo), adjective/possessive
+ * agreement, and the sounds that trip learners up (nasal ã/ão/õe, lh/nh, the two
+ * r's, ç, x). Vocabulary anchors are Portuguese words; grammar targets name the
+ * Portuguese forms. As elsewhere, the can-do goals are written for the learner
+ * and all lesson text/examples are generated fresh at runtime.
+ *
+ * Standardized on Brazilian Portuguese (você as default "you"; tem for "there
+ * is/are"; estar + gerúndio for the continuous), with European variants flagged
+ * in notes where useful.
+ */
+const PT_A1_TOPICS: Omit<Topic, "level" | "target">[] = [
+  {
+    id: 1,
+    slug: "ser-apresentacoes",
+    title: "Introductions & the verb Ser",
+    summary: "Greet people, say who you are, and use ser — the first Portuguese 'to be'.",
+    lessons: [
+      { id: "1.1", title: "Greetings", focus: "vocabulary", canDo: "I can greet people at different times of day.", vocab: ["olá", "oi", "bom dia", "boa tarde", "boa noite", "tchau"], note: "oi/olá (informal), bom dia/boa tarde/boa noite by time of day; tchau, até logo. Informal vs formal." },
+      { id: "1.2", title: "Names", focus: "function", canDo: "I can say my name and ask someone's name.", fn: "Como você se chama? / Qual é o seu nome? — Meu nome é… / Eu me chamo… / Muito prazer." },
+      { id: "1.3", title: "Subject pronouns", focus: "grammar", canDo: "I can use the Portuguese subject pronouns.", grammar: "subject pronouns: eu, você, ele, ela, nós, vocês, eles, elas", note: "Brazilian default: você for 'you' (takes 3rd-person verb forms). Mention tu/vós only as a side note." },
+      { id: "1.4", title: "The verb Ser", focus: "grammar", canDo: "I can say who I am and where I'm from with ser.", grammar: "verb ser (to be), present: eu sou, você/ele/ela é, nós somos, vocês/eles/elas são", note: "ser for identity, origin, profession: Eu sou Ana. Eu sou do Brasil. Teach ALL persons." },
+      { id: "1.5", title: "Portuguese sounds", focus: "pronunciation", canDo: "I can recognize the key Portuguese sounds.", note: "Awareness of nasal vowels ã/ão, the digraphs lh/nh, and ç: não, mãe, filho, senhor, coração." },
+      { id: "1.6", title: "Introduce yourself", focus: "function", canDo: "I can introduce myself and ask where someone is from.", fn: "introducing yourself; De onde você é? — Eu sou de…" },
+      { id: "1.7", title: "Numbers 0–10", focus: "vocabulary", canDo: "I can count from 0 to 10.", vocab: ["zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez"], note: "Note gender: um/uma, dois/duas." },
+      { id: "1.8", title: "Countries & nationalities", focus: "vocabulary", canDo: "I can say nationalities with the right gender.", vocab: ["Brasil", "Portugal", "brasileiro", "brasileira", "português", "portuguesa"], grammar: "nationality adjectives agree in gender: brasileiro/brasileira", note: "Country vs nationality; gender agreement." },
+      { id: "1.9", title: "Questions with Ser", focus: "grammar", canDo: "I can ask and answer questions with ser.", grammar: "questions with ser: Você é…? Quem é…?", note: "Você é estudante? Sim, sou. / Quem é ele? Intonation marks the question." },
+      { id: "1.10", title: "Personal information", focus: "function", canDo: "I can give my phone number and email.", fn: "exchanging phone/email; números + arroba (@)", note: "telefone, e-mail, arroba." },
+      { id: "1.11", title: "A first conversation", focus: "skill", canDo: "I can have a short first conversation.", note: "Combine greeting + name + origin with ser." },
+      { id: "1.12", title: "Unit 1 review", focus: "review", canDo: "I can introduce myself and say who I am.", note: "Mixed check of Unit 1 goals." },
+    ],
+  },
+  {
+    id: 2,
+    slug: "genero-artigos",
+    title: "Gender, Articles & Demonstratives",
+    summary: "The foundation of Portuguese: noun gender, articles, plurals and pointing things out.",
+    lessons: [
+      { id: "2.1", title: "Noun gender", focus: "grammar", canDo: "I can tell if a noun is masculine or feminine.", grammar: "grammatical gender of nouns (masculine / feminine)", note: "Usually -o = masc, -a = fem, but flag common exceptions: o problema, o dia, a mão. Gender drives everything else." },
+      { id: "2.2", title: "Definite articles", focus: "grammar", canDo: "I can use o, a, os, as.", grammar: "definite articles: o, a, os, as", note: "o livro, a casa, os livros, as casas — the article agrees with the noun." },
+      { id: "2.3", title: "Indefinite articles", focus: "grammar", canDo: "I can use um, uma, uns, umas.", grammar: "indefinite articles: um, uma, uns, umas", note: "um carro, uma casa, uns carros, umas casas." },
+      { id: "2.4", title: "Plural of nouns", focus: "grammar", canDo: "I can make Portuguese plurals.", grammar: "plural of nouns: -s, -es (after consonant), -m → -ns", note: "livro→livros, flor→flores, homem→homens. (Leave -ão and -l plurals for later — just mention them.)" },
+      { id: "2.5", title: "Open & closed vowels", focus: "pronunciation", canDo: "I can hear open vs closed vowels.", note: "avó (open ó) vs avô (closed ô); é vs ê. These change meaning." },
+      { id: "2.6", title: "Demonstratives", focus: "grammar", canDo: "I can point things out by distance.", grammar: "demonstratives: este/esta, esse/essa, aquele/aquela (gender + distance)", note: "este = near me, esse = near you, aquele = far from both; agree in gender/number." },
+      { id: "2.7", title: "Everyday objects", focus: "vocabulary", canDo: "I can name everyday objects with their article.", vocab: ["telefone", "chave", "bolsa", "mochila", "caneta", "livro"], note: "Always learn the noun WITH its article (o/a)." },
+      { id: "2.8", title: "Agreement", focus: "grammar", canDo: "I can make article, noun and adjective agree.", grammar: "agreement: article + noun + adjective", note: "o carro vermelho, a casa branca, as casas brancas." },
+      { id: "2.9", title: "Colors", focus: "vocabulary", canDo: "I can name colors with agreement.", vocab: ["vermelho", "azul", "verde", "amarelo", "branco", "preto"], grammar: "color adjectives agree: vermelho/vermelha; azul/verde invariable in gender", note: "Adjectives in -o change for gender; those in -e/-l usually don't." },
+      { id: "2.10", title: "What is this?", focus: "function", canDo: "I can ask what something is and point it out.", fn: "O que é isto/isso/aquilo? — É um/uma…" },
+      { id: "2.11", title: "Describe objects", focus: "skill", canDo: "I can describe objects around me.", note: "demonstratives + article + noun + adjective agreement." },
+      { id: "2.12", title: "Unit 2 review", focus: "review", canDo: "I can use gender, articles and demonstratives.", note: "Mixed check of Unit 2 goals." },
+    ],
+  },
+  {
+    id: 3,
+    slug: "ser-estar",
+    title: "Ser vs Estar & Feelings",
+    summary: "The second 'to be' (estar), the ser/estar contrast, and talking about feelings.",
+    lessons: [
+      { id: "3.1", title: "The verb Estar", focus: "grammar", canDo: "I can say how I am and where things are with estar.", grammar: "verb estar (to be), present: estou, está, estamos, estão", note: "estar for states & location: Eu estou bem. O livro está na mesa. Teach all persons." },
+      { id: "3.2", title: "Ser vs Estar", focus: "grammar", canDo: "I can choose ser or estar.", grammar: "ser (permanent: identity/origin/traits) vs estar (temporary: state/location/mood)", note: "Ele é alto (permanent) vs Ele está cansado (temporary). The key A1 contrast — practice a lot." },
+      { id: "3.3", title: "Feelings & states", focus: "vocabulary", canDo: "I can say how I feel.", vocab: ["feliz", "triste", "cansado", "doente", "animado", "preocupado"], note: "Used mostly with estar: estou feliz, está triste (agreement: cansado/cansada)." },
+      { id: "3.4", title: "Estar com", focus: "grammar", canDo: "I can say I'm hungry, thirsty, sleepy, etc.", grammar: "estar com + noun for states: estar com fome / sede / sono / medo / pressa / frio / calor", note: "Portuguese does NOT use 'to be + adjective' here — it uses estar com + noun: Estou com fome = I'm hungry." },
+      { id: "3.5", title: "Nasal vowels", focus: "pronunciation", canDo: "I can produce the nasal vowels.", note: "ã, ão, õe: mãe, não, pão, põe, irmã, coração." },
+      { id: "3.6", title: "How are you?", focus: "function", canDo: "I can greet someone and ask how they are.", fn: "Tudo bem? / Como vai? / Como você está? — Tudo bem, e você?" },
+      { id: "3.7", title: "Describing people", focus: "vocabulary", canDo: "I can say what people are like.", vocab: ["alto", "baixo", "magro", "jovem", "simpático", "bonito"], note: "Traits use ser (Ela é simpática); agreement applies." },
+      { id: "3.8", title: "Adjective agreement", focus: "grammar", canDo: "I can make adjectives agree in gender and number.", grammar: "adjective agreement (gender + number)", note: "simpático/simpática/simpáticos/simpáticas; adjectives in -e are invariable for gender (inteligente)." },
+      { id: "3.9", title: "Muito: very vs many", focus: "grammar", canDo: "I can use muito correctly.", grammar: "muito as adverb (invariable: very) vs muito/muita/muitos/muitas (quantity)", note: "muito alto (very — no change) vs muita gente / muitos livros (quantity — agrees)." },
+      { id: "3.10", title: "Describe how someone is", focus: "function", canDo: "I can describe how someone is and looks.", fn: "describing people with ser + estar" },
+      { id: "3.11", title: "Describe a person", focus: "skill", canDo: "I can describe a person fully.", note: "ser for traits + estar for mood + agreement." },
+      { id: "3.12", title: "Unit 3 review", focus: "review", canDo: "I can use ser, estar and describe people.", note: "Mixed check of Unit 3 goals." },
+    ],
+  },
+  {
+    id: 4,
+    slug: "ter-familia",
+    title: "The verb Ter, Family & Possessives",
+    summary: "Talk about your family, age and belongings with ter and the possessives.",
+    lessons: [
+      { id: "4.1", title: "Family members", focus: "vocabulary", canDo: "I can name close family members.", vocab: ["pai", "mãe", "irmão", "irmã", "filho", "filha"] },
+      { id: "4.2", title: "Extended family", focus: "vocabulary", canDo: "I can name more relatives.", vocab: ["avô", "avó", "tio", "tia", "primo", "prima"], note: "avô (grandfather, closed ô) vs avó (grandmother, open ó)." },
+      { id: "4.3", title: "The verb Ter", focus: "grammar", canDo: "I can say what I have with ter.", grammar: "verb ter (to have), present: tenho, tem, temos, têm", note: "Eu tenho dois irmãos. Teach all persons; têm (they) takes a circumflex." },
+      { id: "4.4", title: "Possessives (singular)", focus: "grammar", canDo: "I can say my/your with agreement.", grammar: "possessives meu/minha, seu/sua, dele/dela (agree with the thing owned)", note: "meu carro, minha casa; seu/sua = your (você). Use dele/dela to avoid ambiguity (a casa dele)." },
+      { id: "4.5", title: "Possessives (plural)", focus: "grammar", canDo: "I can use plural possessives.", grammar: "possessives plural: meus/minhas, seus/suas, nossos/nossas", note: "meus livros, minhas chaves, nossa família, nossos amigos." },
+      { id: "4.6", title: "Diphthongs", focus: "pronunciation", canDo: "I can say Portuguese diphthongs.", note: "pai, mãe, céu, pão, dois, muito." },
+      { id: "4.7", title: "Talking about age", focus: "grammar", canDo: "I can ask and say how old someone is.", grammar: "ter for age: Quantos anos você tem? — Tenho 20 anos.", note: "Portuguese uses TER for age, never ser: Eu tenho 20 anos (NOT 'sou 20')." },
+      { id: "4.8", title: "Contraction de + article", focus: "grammar", canDo: "I can show possession and origin with de.", grammar: "contraction de + article: do, da, dos, das", note: "o carro do João, a casa da Maria, sou do Brasil, a capa dos livros." },
+      { id: "4.9", title: "Talk about your family", focus: "function", canDo: "I can talk about my family.", fn: "describing your family (ter + possessives)" },
+      { id: "4.10", title: "Relationship status", focus: "vocabulary", canDo: "I can talk about relationship status.", vocab: ["casado", "solteiro", "namorado", "namorada", "esposa", "marido"] },
+      { id: "4.11", title: "Describe your family", focus: "skill", canDo: "I can describe my family.", note: "ter + possessives + de-contractions." },
+      { id: "4.12", title: "Unit 4 review", focus: "review", canDo: "I can talk about family, age and belongings.", note: "Mixed check of Unit 4 goals." },
+    ],
+  },
+  {
+    id: 5,
+    slug: "presente-verbos",
+    title: "Present Tense: -ar / -er / -ir Verbs",
+    summary: "Conjugate regular verbs by their three groups and describe your daily routine.",
+    lessons: [
+      { id: "5.1", title: "-ar verbs", focus: "grammar", canDo: "I can conjugate regular -ar verbs.", grammar: "regular -ar verbs, present (falar): falo, fala, falamos, falam", note: "falar, morar, trabalhar, estudar, gostar. Eu falo, você fala, nós falamos, eles falam." },
+      { id: "5.2", title: "-er verbs", focus: "grammar", canDo: "I can conjugate regular -er verbs.", grammar: "regular -er verbs, present (comer): como, come, comemos, comem", note: "comer, beber, viver, aprender, escrever." },
+      { id: "5.3", title: "-ir verbs", focus: "grammar", canDo: "I can conjugate regular -ir verbs.", grammar: "regular -ir verbs, present (abrir): abro, abre, abrimos, abrem", note: "abrir, partir, assistir, decidir." },
+      { id: "5.4", title: "Daily routine", focus: "vocabulary", canDo: "I can describe my daily routine.", vocab: ["acordar", "tomar café", "trabalhar", "almoçar", "voltar", "dormir"] },
+      { id: "5.5", title: "The R sounds", focus: "pronunciation", canDo: "I can tell the two R sounds apart.", note: "soft tap in caro vs strong R in carro; word-initial r- is strong (rato, rua)." },
+      { id: "5.6", title: "The verb Ir", focus: "grammar", canDo: "I can say where I go.", grammar: "irregular verb ir (to go), present: vou, vai, vamos, vão", note: "ir + a (+ contraction): vou ao trabalho, vou à escola." },
+      { id: "5.7", title: "Key irregular verbs", focus: "grammar", canDo: "I can use a few high-frequency irregular verbs.", grammar: "irregular fazer, querer, poder (present, main forms): faço/faz, quero/quer, posso/pode", note: "Introduce the most useful forms; full poder/saber come in Unit 12." },
+      { id: "5.8", title: "Negatives", focus: "grammar", canDo: "I can make negative sentences.", grammar: "negation: não before the verb; double negative (não … nada/ninguém/nunca)", note: "Eu não falo francês. Não tenho carro. Double negatives are normal and correct: Não vejo ninguém." },
+      { id: "5.9", title: "Talk about your routine", focus: "function", canDo: "I can talk about my routine.", fn: "talking about your daily routine" },
+      { id: "5.10", title: "Frequency adverbs", focus: "grammar", canDo: "I can say how often I do things.", grammar: "frequency: sempre, geralmente, às vezes, raramente, nunca", note: "Usually before the main verb or at the start of the sentence." },
+      { id: "5.11", title: "Describe your day", focus: "skill", canDo: "I can describe my whole day.", note: "regular verbs + ir + frequency adverbs." },
+      { id: "5.12", title: "Unit 5 review", focus: "review", canDo: "I can talk about routines in the present tense.", note: "Mixed check of Unit 5 goals." },
+    ],
+  },
+  {
+    id: 6,
+    slug: "horas-dias",
+    title: "Time, Numbers & Days",
+    summary: "Tell the time, count to 100, and use the days, months and time prepositions.",
+    lessons: [
+      { id: "6.1", title: "Telling the time", focus: "function", canDo: "I can tell the time.", grammar: "telling time: É uma hora; São duas horas; meio-dia / meia-noite; e / para minutes", note: "É (singular: uma, meio-dia, meia-noite) vs São (plural: duas+). São três e quinze. São dez para as oito." },
+      { id: "6.2", title: "Days of the week", focus: "vocabulary", canDo: "I can name the days of the week.", vocab: ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"], note: "Weekdays are 'feira' days; often shortened (segunda)." },
+      { id: "6.3", title: "Months & dates", focus: "vocabulary", canDo: "I can say months and dates.", vocab: ["janeiro", "fevereiro", "março", "abril", "maio", "mês"], note: "Dates: (dia) + de + month: 5 de maio. Months are lowercase." },
+      { id: "6.4", title: "Time prepositions", focus: "grammar", canDo: "I can use prepositions of time.", grammar: "prepositions of time: às (hours), de (manhã/tarde/noite), em (months)", note: "às 8 horas, de manhã, à noite, em janeiro." },
+      { id: "6.5", title: "Nasal numbers", focus: "pronunciation", canDo: "I can pronounce the nasal numbers.", note: "cinco, cinquenta, cem, cento, vinte — watch the nasal endings." },
+      { id: "6.6", title: "Numbers 11–100", focus: "vocabulary", canDo: "I can count to 100.", vocab: ["onze", "doze", "vinte", "trinta", "cinquenta", "cem"], note: "vinte e um, trinta e dois … ; 100 = cem (cento e um for 101)." },
+      { id: "6.7", title: "Contraction em + article", focus: "grammar", canDo: "I can use no/na for places and days.", grammar: "contraction em + article: no, na, nos, nas", note: "no sábado, na segunda, no Brasil, na escola." },
+      { id: "6.8", title: "Making plans", focus: "function", canDo: "I can make a plan with someone.", fn: "making plans; Vamos…? Que tal…? A que horas?" },
+      { id: "6.9", title: "When questions", focus: "grammar", canDo: "I can ask when something happens.", grammar: "questions with quando, que horas, que dia", note: "Quando é? Que horas são? Que dia é hoje?" },
+      { id: "6.10", title: "Talk about schedules", focus: "function", canDo: "I can talk about times and schedules.", fn: "talking about schedules" },
+      { id: "6.11", title: "Describe your week", focus: "skill", canDo: "I can describe my week.", note: "days + times + em/de contractions." },
+      { id: "6.12", title: "Unit 6 review", focus: "review", canDo: "I can talk about time, days and plans.", note: "Mixed check of Unit 6 goals." },
+    ],
+  },
+  {
+    id: 7,
+    slug: "comida",
+    title: "Food, Gostar de & Ordering",
+    summary: "Talk about food, say what you like with gostar de, and order at a restaurant.",
+    lessons: [
+      { id: "7.1", title: "Foods", focus: "vocabulary", canDo: "I can name common foods.", vocab: ["arroz", "feijão", "pão", "carne", "peixe", "fruta"] },
+      { id: "7.2", title: "Drinks & meals", focus: "vocabulary", canDo: "I can name drinks and meals.", vocab: ["água", "café", "suco", "café da manhã", "almoço", "jantar"], note: "café da manhã (BR) = breakfast (PT: pequeno-almoço)." },
+      { id: "7.3", title: "Gostar de", focus: "grammar", canDo: "I can say what I like.", grammar: "gostar DE + noun/infinitive (with de-contractions): gosto de café, gosto do bolo, gosto de cozinhar", note: "gostar is ALWAYS followed by de. de+o=do (gosto do peixe). gostar de + infinitive for activities." },
+      { id: "7.4", title: "The verb Querer", focus: "grammar", canDo: "I can say what I want.", grammar: "querer (to want), present: quero, quer, queremos, querem", note: "Eu quero um café, por favor. Used to order and request." },
+      { id: "7.5", title: "C, Ç and S", focus: "pronunciation", canDo: "I can pronounce c, ç and s.", note: "ça/ço/çu = /s/ (almoço, açúcar); ce/ci = /s/; ca/co/cu = /k/ (casa)." },
+      { id: "7.6", title: "At the restaurant", focus: "function", canDo: "I can order food at a restaurant.", fn: "ordering food; Eu queria… / Para mim… / Por favor" },
+      { id: "7.7", title: "Quantities", focus: "grammar", canDo: "I can talk about amounts of food.", grammar: "quantities: muito/pouco, um pouco de, bastante", note: "muita comida, um pouco de arroz." },
+      { id: "7.8", title: "Preferences", focus: "grammar", canDo: "I can say what I prefer.", grammar: "preferir: prefiro … a …; gostar mais de", note: "Prefiro chá a café. Gosto mais de suco." },
+      { id: "7.9", title: "Likes & dislikes", focus: "function", canDo: "I can talk about likes and dislikes.", fn: "talking about likes/dislikes; Não gosto de…" },
+      { id: "7.10", title: "The bill", focus: "function", canDo: "I can ask for and pay the bill.", fn: "A conta, por favor; Quanto é? Aceita cartão?" },
+      { id: "7.11", title: "Plan a meal", focus: "skill", canDo: "I can plan a simple meal.", note: "food vocab + gostar de + quantities." },
+      { id: "7.12", title: "Unit 7 review", focus: "review", canDo: "I can talk about food, likes and ordering.", note: "Mixed check of Unit 7 goals." },
+    ],
+  },
+  {
+    id: 8,
+    slug: "cidade",
+    title: "The City, Tem/Há & Directions",
+    summary: "Describe your city, say what there is with tem/há, and give directions.",
+    lessons: [
+      { id: "8.1", title: "Places in town", focus: "vocabulary", canDo: "I can name places in town.", vocab: ["banco", "mercado", "farmácia", "praça", "escola", "hospital"] },
+      { id: "8.2", title: "Tem / Há (there is/are)", focus: "grammar", canDo: "I can say what there is in a place.", grammar: "there is/are: tem (BR, common) / há (more formal) — both invariable", note: "Tem um banco aqui? = Há um banco aqui? Same for singular and plural: Tem dois parques." },
+      { id: "8.3", title: "Prepositions of place", focus: "grammar", canDo: "I can say where places are.", grammar: "prepositions of place: em, ao lado de, perto de, longe de, entre, atrás de, na frente de", note: "perto de takes de-contractions: perto do mercado, ao lado da praça." },
+      { id: "8.4", title: "Contraction a + article", focus: "grammar", canDo: "I can use ao/à and review contractions.", grammar: "contraction a + article: ao, à, aos, às (movement/direction)", note: "vou ao banco, vou à praça. Quick review of do/da and no/na too." },
+      { id: "8.5", title: "LH and NH", focus: "pronunciation", canDo: "I can pronounce lh and nh.", note: "filho, mulher, trabalho (lh); banho, dinheiro, senhora (nh)." },
+      { id: "8.6", title: "Where is…?", focus: "function", canDo: "I can ask where something is.", fn: "Onde fica…? / Onde é…?" },
+      { id: "8.7", title: "Directions", focus: "function", canDo: "I can give simple directions.", grammar: "directions: vire à direita/esquerda, siga em frente, vá até", note: "Imperative-style direction phrases; keep them set/fixed at A1." },
+      { id: "8.8", title: "Transport", focus: "vocabulary", canDo: "I can say how I get around.", vocab: ["ônibus", "carro", "metrô", "bicicleta", "a pé"], note: "de ônibus / de carro / de metrô, BUT a pé (on foot)." },
+      { id: "8.9", title: "Ask & give directions", focus: "function", canDo: "I can ask for and give directions.", fn: "asking for and giving directions" },
+      { id: "8.10", title: "Describe your area", focus: "function", canDo: "I can describe my neighborhood.", fn: "describing your neighborhood" },
+      { id: "8.11", title: "A city guide", focus: "skill", canDo: "I can give a short guide to my city.", note: "places + tem/há + prepositions + directions." },
+      { id: "8.12", title: "Unit 8 review", focus: "review", canDo: "I can describe a city and give directions.", note: "Mixed check of Unit 8 goals." },
+    ],
+  },
+  {
+    id: 9,
+    slug: "presente-continuo",
+    title: "Present Continuous & Home",
+    summary: "Say what's happening right now with estar + gerúndio, and describe your home.",
+    lessons: [
+      { id: "9.1", title: "Activities", focus: "vocabulary", canDo: "I can name everyday activities.", vocab: ["estudar", "cozinhar", "ler", "escrever", "ouvir música"] },
+      { id: "9.2", title: "Present continuous", focus: "grammar", canDo: "I can say what's happening now.", grammar: "present continuous: estar + gerúndio (estou falando, está comendo)", note: "BR uses estar + gerúndio. Flag the European form (estar a + infinitivo: estou a falar) as a note." },
+      { id: "9.3", title: "The gerund", focus: "grammar", canDo: "I can form the gerund of all three groups.", grammar: "gerund: -ar→-ando, -er→-endo, -ir→-indo", note: "falando, comendo, partindo." },
+      { id: "9.4", title: "Continuous: − and ?", focus: "grammar", canDo: "I can ask and deny what's happening now.", grammar: "present continuous negative & questions", note: "Você está estudando? Não estou trabalhando agora." },
+      { id: "9.5", title: "Simple vs continuous", focus: "grammar", canDo: "I can choose simple present or present continuous.", grammar: "simple present (habits) vs present continuous (right now)", note: "Eu como às 12h (habit) vs Estou comendo agora (now)." },
+      { id: "9.6", title: "Rhythm & stress", focus: "pronunciation", canDo: "I can use natural rhythm and stress.", note: "Stressed syllables and written accents (á, ê, ó) guide the stress." },
+      { id: "9.7", title: "Rooms at home", focus: "vocabulary", canDo: "I can name rooms in a home.", vocab: ["cozinha", "sala", "quarto", "banheiro", "varanda"], note: "banheiro (BR) = bathroom (PT: casa de banho)." },
+      { id: "9.8", title: "Furniture", focus: "vocabulary", canDo: "I can name furniture.", vocab: ["cama", "mesa", "cadeira", "sofá", "armário"] },
+      { id: "9.9", title: "What are you doing?", focus: "function", canDo: "I can say what I'm doing now.", fn: "talking about current actions; O que você está fazendo?" },
+      { id: "9.10", title: "Describe a scene", focus: "function", canDo: "I can describe what people are doing.", fn: "describing a scene" },
+      { id: "9.11", title: "Describe the picture", focus: "skill", canDo: "I can describe what everyone in a picture is doing.", note: "present continuous + rooms/furniture vocabulary." },
+      { id: "9.12", title: "Unit 9 review", focus: "review", canDo: "I can describe what's happening now and my home.", note: "Mixed check of Unit 9 goals." },
+    ],
+  },
+  {
+    id: 10,
+    slug: "roupas-compras",
+    title: "Clothes, Shopping & Prices",
+    summary: "Talk about clothes, go shopping, and ask prices.",
+    lessons: [
+      { id: "10.1", title: "Clothes", focus: "vocabulary", canDo: "I can name clothes.", vocab: ["camisa", "calça", "vestido", "sapatos", "blusa"] },
+      { id: "10.2", title: "More clothes", focus: "vocabulary", canDo: "I can name more clothes and accessories.", vocab: ["casaco", "chapéu", "óculos", "meias", "cinto"] },
+      { id: "10.3", title: "Colors with clothes", focus: "grammar", canDo: "I can describe clothes with colors.", grammar: "adjective/color agreement with clothes", note: "uma camisa azul, sapatos pretos, uma blusa branca — agreement." },
+      { id: "10.4", title: "Demonstratives shopping", focus: "grammar", canDo: "I can point out items while shopping.", grammar: "demonstratives in context: este/esse/aquele + agreement", note: "Quero esta camisa, não aquela. Quanto custa esse casaco?" },
+      { id: "10.5", title: "How much is it?", focus: "function", canDo: "I can ask prices.", grammar: "prices: Quanto custa? / Quanto custam? / Quanto é?", note: "custa (singular) vs custam (plural)." },
+      { id: "10.6", title: "Money & big numbers", focus: "vocabulary", canDo: "I can talk about money and bigger numbers.", vocab: ["real", "reais", "centavos", "cem", "mil"], note: "Prices in reais; números maiores (duzentos, mil)." },
+      { id: "10.7", title: "The letter X", focus: "pronunciation", canDo: "I can handle the letter x.", note: "x has several sounds: peixe (sh), táxi (ks), exame (z), próximo (s)." },
+      { id: "10.8", title: "Going shopping", focus: "function", canDo: "I can go shopping and ask for help.", fn: "shopping; Posso ajudar? Estou só olhando; Posso experimentar?" },
+      { id: "10.9", title: "Querer / precisar de", focus: "grammar", canDo: "I can say what I want and need.", grammar: "querer + noun/infinitive; precisar DE + noun", note: "Preciso de uma blusa. Quero experimentar este vestido. (precisar takes de)." },
+      { id: "10.10", title: "What to wear", focus: "function", canDo: "I can talk about what to wear.", fn: "talking about what to wear" },
+      { id: "10.11", title: "Describe a style", focus: "skill", canDo: "I can describe someone's outfit and style.", note: "clothes + colors + agreement + demonstratives." },
+      { id: "10.12", title: "Unit 10 review", focus: "review", canDo: "I can talk about clothes, shopping and prices.", note: "Mixed check of Unit 10 goals." },
+    ],
+  },
+  {
+    id: 11,
+    slug: "futuro-ir",
+    title: "Future with Ir, Plans & Travel",
+    summary: "Talk about the near future with ir + infinitive, make invitations, and plan a trip.",
+    lessons: [
+      { id: "11.1", title: "Near future with Ir", focus: "grammar", canDo: "I can talk about future plans.", grammar: "near future: ir (present) + infinitive (vou viajar, vamos comer)", note: "Eu vou estudar amanhã. vou/vai/vamos/vão + infinitive — the everyday way to talk about the future." },
+      { id: "11.2", title: "Future expressions", focus: "vocabulary", canDo: "I can use future time expressions.", vocab: ["amanhã", "depois", "mais tarde", "na próxima semana", "no próximo mês"] },
+      { id: "11.3", title: "Talk about plans", focus: "function", canDo: "I can talk about my plans.", fn: "talking about plans (vou + infinitive)" },
+      { id: "11.4", title: "Gostaria de / queria", focus: "grammar", canDo: "I can make polite requests and wishes.", grammar: "polite wishes: gostaria de / queria + noun/infinitive", note: "Eu gostaria de um café. Queria reservar uma mesa. Softer/more polite than quero." },
+      { id: "11.5", title: "Invitations", focus: "function", canDo: "I can invite someone to do something.", fn: "inviting; Você quer…? Vamos…? Que tal…?" },
+      { id: "11.6", title: "Spoken contractions", focus: "pronunciation", canDo: "I can understand fast, casual speech.", note: "Informal speech: para → pra, você → cê, está → tá. Understand them; you don't have to use them." },
+      { id: "11.7", title: "The weather", focus: "vocabulary", canDo: "I can describe the weather.", vocab: ["sol", "chuva", "frio", "calor", "vento", "nublado"], note: "Está fazendo sol/calor; Está chovendo; Está frio." },
+      { id: "11.8", title: "Travel", focus: "vocabulary", canDo: "I can talk about travel.", vocab: ["viagem", "mala", "passagem", "hotel", "praia"] },
+      { id: "11.9", title: "Plan a trip", focus: "function", canDo: "I can plan a trip with someone.", fn: "planning a trip (vou/vamos + infinitive)" },
+      { id: "11.10", title: "Accept & refuse", focus: "function", canDo: "I can accept and politely refuse.", fn: "accepting and refusing invitations; Aceito! / Desculpe, não posso." },
+      { id: "11.11", title: "Plan your weekend", focus: "skill", canDo: "I can plan my weekend.", note: "ir + infinitive + invitations + weather." },
+      { id: "11.12", title: "Unit 11 review", focus: "review", canDo: "I can talk about plans, invitations and travel.", note: "Mixed check of Unit 11 goals." },
+    ],
+  },
+  {
+    id: 12,
+    slug: "poder-saber-trabalho",
+    title: "Poder/Saber, Jobs & Review",
+    summary: "Say what you can and know how to do, talk about work, and wrap up the A1 course.",
+    lessons: [
+      { id: "12.1", title: "Jobs", focus: "vocabulary", canDo: "I can name common jobs with the right gender.", vocab: ["médico", "médica", "professor", "professora", "engenheiro", "vendedor"], note: "Gender pairs: professor/professora, vendedor/vendedora." },
+      { id: "12.2", title: "Workplaces", focus: "vocabulary", canDo: "I can say where people work.", vocab: ["escritório", "hospital", "loja", "escola", "fábrica"] },
+      { id: "12.3", title: "The verb Poder", focus: "grammar", canDo: "I can say what I can or may do.", grammar: "poder (can: possibility/permission), present: posso, pode, podemos, podem", note: "Posso entrar? Você pode me ajudar? Não posso ir hoje." },
+      { id: "12.4", title: "Saber vs Poder", focus: "grammar", canDo: "I can tell saber from poder.", grammar: "saber (know how to) vs poder (be able/allowed to)", note: "Eu sei nadar (have the skill) vs Eu posso nadar hoje (possibility/permission). English 'can' covers both." },
+      { id: "12.5", title: "Saber + infinitive", focus: "grammar", canDo: "I can say what I know how to do.", grammar: "saber + infinitive for skills: sei falar inglês", note: "saber present: sei, sabe, sabemos, sabem. Eu sei cozinhar / dirigir." },
+      { id: "12.6", title: "Sounds review", focus: "pronunciation", canDo: "I can pronounce the tricky sounds together.", note: "Mixed drill: nasals (ã/ão/õe), lh/nh, the two r's, ç, x." },
+      { id: "12.7", title: "Talk about abilities", focus: "function", canDo: "I can talk about my abilities.", fn: "talking about abilities (saber / poder)" },
+      { id: "12.8", title: "What do you do?", focus: "function", canDo: "I can say what I do for work.", grammar: "talking about your job: O que você faz? — Eu sou… / Eu trabalho como…", note: "After ser, a profession usually drops the article: Ele é médico. Sou professora." },
+      { id: "12.9", title: "Talk about your work", focus: "function", canDo: "I can talk about my work.", fn: "talking about your work" },
+      { id: "12.10", title: "Professional intro", focus: "function", canDo: "I can introduce myself professionally.", fn: "a short professional self-introduction" },
+      { id: "12.11", title: "Introduce yourself at work", focus: "skill", canDo: "I can introduce myself in a work setting.", note: "jobs + saber/poder + ser." },
+      { id: "12.12", title: "Course review", focus: "review", canDo: "I can use everything from the Portuguese A1 course in conversation.", note: "Wrap-up: mix goals from across all A1 (Portuguese) units." },
+    ],
+  },
+];
+
 /** Tag base topics with a course (level + target language), offsetting topic ids
  *  so each course stays unique and renumbering lesson ids to match. */
 function course(
@@ -570,8 +830,8 @@ function course(
 export const CURRICULUM: Topic[] = [
   ...course(A1_TOPICS, "A1", "English", 0), // topics 1–12
   ...course(A2_TOPICS, "A2", "English", 0), // topics 13–24
-  // Portuguese A1 reuses the same A1 themes/goals, taught in Portuguese (topics 25–36).
-  ...course(A1_TOPICS, "A1", "Portuguese", 24),
+  // Portuguese (Brazilian) A1 — a real Portuguese scope & sequence (topics 25–36).
+  ...course(PT_A1_TOPICS, "A1", "Portuguese", 24),
 ];
 
 export const LEVELS: CEFRLevel[] = ["A1", "A2"];
