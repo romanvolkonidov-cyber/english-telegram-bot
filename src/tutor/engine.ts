@@ -297,14 +297,16 @@ export async function getTutorReply(
       temperature: attempt === 0 ? 0.6 : 0.3, // calmer sampling on a retry → cleaner JSON
       cacheSystem: true,
     });
-    if (result) {
-      costUsd += result.costUsd;
-      const reply = parseReply(result.text);
-      if (reply) return { reply, costUsd };
-    }
-    if (attempt < 2) await sleep(400 * (attempt + 1)); // brief backoff before retrying
+    // callClaude already retried transient API errors internally; a null here means a
+    // genuine outage, so we stop rather than hammer it.
+    if (!result) return null;
+    costUsd += result.costUsd;
+    const reply = parseReply(result.text);
+    if (reply) return { reply, costUsd };
+    // The model replied but the JSON didn't parse — a fresh sample almost always fixes it.
+    if (attempt < 2) await sleep(300);
   }
-  return null; // give up cleanly; the bot shows "try again" and history stays clean
+  return null; // give up cleanly; the bot shows a soft retry note and history stays clean
 }
 
 /**
@@ -363,17 +365,16 @@ export async function describeImageTurn(
       temperature: attempt === 0 ? 0.5 : 0.3,
       cacheSystem: true,
     });
-    if (result) {
-      costUsd += result.costUsd;
-      const reply = parseReply(result.text);
-      if (reply) {
-        // The picture is already on screen; never re-trigger generation from this turn.
-        reply.image = null;
-        reply.imageAsk = false;
-        return { reply, costUsd };
-      }
+    if (!result) return null; // callClaude already retried transient errors
+    costUsd += result.costUsd;
+    const reply = parseReply(result.text);
+    if (reply) {
+      // The picture is already on screen; never re-trigger generation from this turn.
+      reply.image = null;
+      reply.imageAsk = false;
+      return { reply, costUsd };
     }
-    if (attempt < 1) await sleep(400);
+    if (attempt < 1) await sleep(300);
   }
   return null;
 }

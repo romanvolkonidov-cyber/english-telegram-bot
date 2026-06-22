@@ -566,11 +566,16 @@ async function renderReply(
   if (!flow) return;
 
   if (!result) {
+    // The tutor couldn't be generated (a rare API outage, after several retries). Don't
+    // charge for it, don't touch history, and reassure the student — sending any message
+    // re-runs this turn from the same place, so the lesson simply continues.
     await ctx.reply(
       tr(
         ctx,
-        "⚠️ Не получилось связаться с репетитором. Попробуй ещё раз через минуту или /menu для выхода.",
-        "⚠️ I had trouble reaching the tutor. Try again in a moment, or /menu to exit.",
+        "⏳ Секундочку — связь с репетитором на мгновение прервалась. Твой прогресс и баланс в полной сохранности. " +
+          "Просто отправь свой ответ ещё раз 🙏",
+        "⏳ One moment — the connection to the tutor hiccuped for a second. Your progress and balance are completely safe. " +
+          "Just send your answer again and we'll keep going 🙏",
       ),
     );
     return;
