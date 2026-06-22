@@ -202,7 +202,7 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<ClaudeResult | null> {
       max_tokens: opts.maxTokens ?? 1024,
       temperature: opts.temperature ?? 0.6,
       system,
-      messages: withPrefill(opts.messages, opts.prefill),
+      messages: opts.messages, // AWS gateway does not support assistant prefill
     },
     "Claude (AWS)",
   );

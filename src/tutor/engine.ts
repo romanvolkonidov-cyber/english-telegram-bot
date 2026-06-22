@@ -330,8 +330,10 @@ export async function getTutorReply(
       return null;
     }
     costUsd += result.costUsd;
-    // The API returns only what Claude generated AFTER the prefill — prepend it back.
-    const reply = parseReply("{" + result.text);
+    // When prefill was applied the API returns only what came AFTER the "{" — prepend
+    // it back. When the backend ignored prefill (e.g. AWS) the full JSON is already there.
+    const rawText = result.text.trimStart().startsWith("{") ? result.text : "{" + result.text;
+    const reply = parseReply(rawText);
     if (reply) return { reply, costUsd };
     // The model replied but the JSON didn't parse — a fresh sample almost always fixes it.
     console.error(
