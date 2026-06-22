@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { t } from "./i18n.js";
 import { initialSession } from "./bot/context.js";
 import type { BotContext, SessionData } from "./bot/context.js";
+import { firestoreSessionStorage } from "./bot/sessionStore.js";
 import { getConnection } from "./data/connections.js";
 import { fetchAssignmentById } from "./data/homework.js";
 import { showMainMenu, showTeacherMenu } from "./bot/ui.js";
@@ -51,6 +52,9 @@ const bot = new Bot<BotContext>(config.botToken);
 bot.use(
   session({
     initial: (): SessionData => initialSession(config.defaultLanguage),
+    // Persist sessions in Firestore: they survive a restart (a paid lesson resumes
+    // where it left off) and memory no longer grows without bound.
+    storage: firestoreSessionStorage(),
   }),
 );
 
