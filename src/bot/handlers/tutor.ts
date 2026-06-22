@@ -43,6 +43,7 @@ import {
   starsPerLesson,
   MEDIA_COST_USD,
   LESSON_BUDGET_USD,
+  STAR_NET_USD,
   FREE_TRIAL_ENABLED,
 } from "../../tutor/pricing.js";
 
@@ -535,6 +536,14 @@ async function meterTurn(
   const cost =
     claudeUsd + (spoke ? MEDIA_COST_USD.tts : 0) + (imageSent ? MEDIA_COST_USD.image : 0);
   await chargeUsd(ctx, flow, cost, "turn");
+  if (ctx.session.role === "teacher") {
+    const parts = [`Claude $${claudeUsd.toFixed(4)}`];
+    if (spoke) parts.push(`TTS $${MEDIA_COST_USD.tts.toFixed(4)}`);
+    if (imageSent) parts.push(`img $${MEDIA_COST_USD.image.toFixed(4)}`);
+    await ctx.reply(
+      `💸 $${cost.toFixed(4)} (${parts.join(" + ")}) | lesson total $${flow.lessonCostUsd.toFixed(4)}`,
+    ).catch(() => {});
+  }
 }
 
 /** Cheap pre-check before spending: can we spend at all? The free trial is
@@ -551,49 +560,6 @@ async function gate(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
   if (w && w.balanceUsd > 0) return true;
   await showBuyMenu(ctx, "no_balance");
   return false;
-}
-
-/**
- * A paid lesson includes one lesson's budget. If it runs past that (rare — a
- * very long/heavy lesson), don't silently keep spending: if the student still
- * has balance, ask them to agree to cover the extra from it; if they're out,
- * send them to buy more (even a tiny top-up lets them keep going). Returns true
- * if it's fine to continue right now. Call this AFTER the student's turn is in
- * history, so a tapped "continue" resumes the same turn.
- */
-async function overageAllowed(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
-  if (flow.free || flow.overageOk || flow.lessonCostUsd < LESSON_BUDGET_USD) return true;
-  const w = await getWallet(telegramId(ctx)).catch(() => null);
-  // Not enough left to meaningfully continue → must top up (single-lesson case).
-  if (!w || w.balanceUsd < 0.1) {
-    await showBuyMenu(ctx, "no_balance");
-    return false;
-  }
-  // They have balance (a package) → explain and ask to agree.
-  await askOverageConsent(ctx);
-  return false;
-}
-
-/** Explain that this lesson is running past its included budget and offer to
- *  cover the extra from the student's balance. */
-async function askOverageConsent(ctx: BotContext): Promise<void> {
-  const flow = tutorFlow(ctx);
-  const topic = flow ? getTopic(flow.topicId) : undefined;
-  const back = topic ? `lrn:c:${TARGET_CODE[topic.target]}:${topic.level}` : "lrn:topics";
-  const kb = new InlineKeyboard()
-    .text(tr(ctx, "✅ Да, продолжить", "✅ Yes, continue"), "lrn:over")
-    .row()
-    .text(tr(ctx, "⏸️ Закончить урок", "⏸️ End the lesson"), back);
-  await ctx.reply(
-    tr(
-      ctx,
-      "⚡ Урок получился насыщенным и уже использовал обычный объём занятия. Если продолжим, " +
-        "дополнительное время спишется звёздами с твоего баланса. Продолжаем?",
-      "⚡ This lesson has been packed and has already used a normal lesson's worth. If we keep " +
-        "going, the extra time is covered by stars from your balance. Continue?",
-    ),
-    { reply_markup: kb },
-  );
 }
 
 /** Speak text as a voice note (the primary channel). Returns true if sent. */
@@ -689,6 +655,21 @@ async function renderReply(
     await ctx.reply(tr(ctx, "🎉 Урок пройден — отличная работа!", "🎉 Lesson complete — nice work!"), {
       reply_markup: kb,
     });
+    // Report per-lesson profitability to admins after every lesson.
+    {
+      const pack = PACKAGES[0];
+      const netPerLesson = pack ? (pack.stars / pack.lessons) * STAR_NET_USD : 0;
+      const profit = flow.free ? -flow.lessonCostUsd : netPerLesson - flow.lessonCostUsd;
+      const studentName = ctx.session.name ?? ctx.from?.first_name ?? "Unknown";
+      const label = flow.free ? "free/trial" : `net $${netPerLesson.toFixed(2)}`;
+      await notifyAdmins(ctx.api, {
+        title: "💰 Lesson complete",
+        ctx,
+        details:
+          `Student: ${studentName}\n` +
+          `Cost: $${flow.lessonCostUsd.toFixed(4)} | ${label} | P&L: ${profit >= 0 ? "+" : ""}$${profit.toFixed(4)}`,
+      }).catch(() => {});
+    }
     return true;
   }
 
@@ -834,7 +815,6 @@ export async function tutorOnText(ctx: BotContext, text: string): Promise<void> 
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
   const historyLen = flow.history.length;
   flow.history.push({ role: "student", text: text.trim() });
-  if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   const stopThinking = keepThinking(ctx);
   try {
     const profile = await ensureProfile(ctx);
@@ -905,7 +885,6 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
 
   const historyLen = flow.history.length;
   flow.history.push({ role: "student", text: `[spoken aloud] ${transcript}` });
-  if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   const stopThinking = keepThinking(ctx);
   try {
     const profile = await ensureProfile(ctx);
@@ -961,7 +940,6 @@ export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promis
   });
 
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
-  if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   const stopThinking = keepThinking(ctx);
   try {
     const profile = await ensureProfile(ctx);
@@ -1014,12 +992,7 @@ type Pkg = (typeof PACKAGES)[number];
 /** Localized "N lessons · tag" label for a package (menu + invoice). */
 function pkgLabel(ctx: BotContext, p: Pkg): string {
   const noun = tr(ctx, p.lessons === 1 ? "урок" : "уроков", p.lessons === 1 ? "lesson" : "lessons");
-  const tag =
-    p.id === "big"
-      ? tr(ctx, " · лучшая цена", " · best value")
-      : p.id === "pack"
-        ? tr(ctx, " · выгодно 🔥", " · best deal 🔥")
-        : "";
+  const tag = p.id === "pack" ? tr(ctx, " · выгодно 🔥", " · best deal 🔥") : "";
   return `${p.lessons} ${noun}${tag}`;
 }
 
@@ -1078,14 +1051,9 @@ export async function showBuyMenu(
     const deal = off > 0 ? `  · −${off}%` : "";
     lines.push(`• <b>${esc(pkgLabel(ctx, p))}</b> — ${p.stars} ⭐  (${per} ${perWord}${deal})`);
     const icon = p.id === "single" ? "🎟" : "📦";
-    const tag = p.id === "big" ? " 🔥" : "";
     const btnNoun = tr(ctx, "ур", "less");
-    kb.text(`${icon} ${p.lessons} ${btnNoun} · ${p.stars} ⭐${tag}`, `buy:${p.id}`).row();
+    kb.text(`${icon} ${p.lessons} ${btnNoun} · ${p.stars} ⭐`, `buy:${p.id}`).row();
   }
-  lines.push(
-    "",
-    tr(ctx, "💡 Чем больше пакет — тем дешевле каждый урок.", "💡 The bigger the pack, the cheaper each lesson."),
-  );
   kb.text(tr(ctx, "⬅️ Назад к темам", "⬅️ Back to topics"), "lrn:topics");
 
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: kb });

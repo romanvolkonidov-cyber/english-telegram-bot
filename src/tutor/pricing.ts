@@ -47,14 +47,10 @@ export const MEDIA_COST_USD = {
   stt: 0.004, // transcribing one student voice message
 };
 
-/**
- * The API budget INCLUDED in one lesson — a hard cap. A full, picture-rich,
- * voice-every-turn lesson PLUS up to ~10 mistakes fits inside this. With Opus 4.8
- * a heavy lesson (30 turns + voice + 2 images) costs roughly $3.50–3.80, so $4.00
- * leaves safe headroom. Typical lessons cost less, so students usually get more
- * lessons than advertised — and the profit guarantee below holds regardless.
- */
-export const LESSON_BUDGET_USD = 4.0;
+/** Expected cost of one typical lesson — used to display approximate lesson
+ *  counts to students and to cap the free trial. Lessons are NOT hard-stopped
+ *  at this value; actual spend varies and is reported after each lesson. */
+export const LESSON_BUDGET_USD = 1.5;
 
 /** Give every new student ONE free lesson (best conversion hook). The free
  *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
@@ -65,7 +61,7 @@ export const FREE_TRIAL_ENABLED = true;
 /**
  * Top-up packages. A package grants `lessons × LESSON_BUDGET_USD` of API
  * allowance — the most a student can ever burn. Bigger packs cost fewer stars
- * per lesson (200 → 170 → 150), which makes the big pack clearly the best deal.
+ * per lesson (500 → 450), which makes the pack clearly the better deal.
  */
 export interface StarPackage {
   id: string;
@@ -80,9 +76,7 @@ export interface StarPackage {
 }
 
 export const PACKAGES: StarPackage[] = [
-  { id: "single", stars: 500,   lessons: 1,  allowanceUsd: 4.0,   title: "1 урок" },
-  { id: "pack",   stars: 4500,  lessons: 10, allowanceUsd: 40.0,  title: "10 уроков · выгодно 🔥" },
-  { id: "big",    stars: 12000, lessons: 30, allowanceUsd: 120.0, title: "30 уроков · лучшая цена" },
+  { id: "pack", stars: 2000, lessons: 10, allowanceUsd: 15.0, title: "10 уроков 🔥" },
 ];
 
 export function packageById(id: string): StarPackage | undefined {
