@@ -66,7 +66,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /** HTTP statuses worth retrying: rate limit, transient server errors, overload. */
 const RETRYABLE_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
 const MAX_ATTEMPTS = 4;
-const REQUEST_TIMEOUT_MS = 45_000;
+const REQUEST_TIMEOUT_MS = 30_000; // well above normal tutor-turn latency (~5–15s)
 
 /** Exponential backoff with jitter: ~0.8s, 1.6s, 3.2s … */
 function backoffMs(attempt: number): number {

@@ -214,8 +214,17 @@ bot.on("pre_checkout_query", async (ctx) => {
 });
 bot.on("message:successful_payment", handleSuccessfulPayment);
 
-bot.catch((err) => {
+bot.catch(async (err) => {
   console.error("Bot error while handling update:", err.error);
+  // Never leave the user staring at a silent stall when a handler throws: send a
+  // best-effort friendly note. Wrapped so the error handler itself can't throw.
+  try {
+    await err.ctx.reply(t(err.ctx.session?.lang ?? config.defaultLanguage, "error_generic"), {
+      parse_mode: "HTML",
+    });
+  } catch {
+    /* ignore — chat may be gone or unreachable */
+  }
 });
 
 // Keep the long-running process alive on stray async errors instead of crashing.
