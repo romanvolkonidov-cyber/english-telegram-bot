@@ -726,8 +726,19 @@ async function advance(
   lesson: MicroLesson,
 ): Promise<boolean> {
   const lc = lessonContext(flow.topicId, lesson);
-  const first = await getTutorReply(profile, lc, flow.history);
+  // Keep a micro-lesson finite. Once the student has practised enough (sooner if
+  // they're clearly doing well), nudge the tutor to recap and finish; if it still
+  // won't stop, force completion. This ends the "paddling in circles" and protects
+  // the lesson budget.
+  const studentTurns = flow.history.filter((t) => t.role === "student").length;
+  const wrapUp =
+    studentTurns >= 14 || (flow.mastery >= 3 && studentTurns >= 8)
+      ? '[WRAP UP THE LESSON NOW: the student has practised enough and is doing well. Do NOT start another exercise and do NOT re-explain anything. Give a short, warm recap of today\'s goal, praise their progress, and set "lessonComplete": true.]'
+      : undefined;
+  const first = await getTutorReply(profile, lc, flow.history, wrapUp);
   if (!first) return await renderReply(ctx, null);
+  // Hard backstop: never let one micro-lesson run away.
+  if (studentTurns >= 16) first.reply.lessonComplete = true;
 
   if (first.reply.imageAsk && first.reply.image) {
     const stopUpload = keepThinking(ctx, "upload_photo");
