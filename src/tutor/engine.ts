@@ -209,7 +209,7 @@ function extractJsonCandidate(raw: string): string {
  * retry the generation instead of ever showing a raw-JSON blob or a confusing
  * "could you repeat?" line (which, if shown, poisons the history).
  */
-function parseReply(raw: string): TutorReply | null {
+function parseReply(raw: string, allowProse = true): TutorReply | null {
   const candidate = extractJsonCandidate(raw);
   let obj: Partial<TutorReply> | null = null;
   try {
@@ -261,9 +261,11 @@ function parseReply(raw: string): TutorReply | null {
   const image = looksLikeJson(imageStr) ? null : imageStr;
   const board = looksLikeJson(boardStr) ? null : boardStr;
 
-  // Last resort: if Claude returned plain prose (no JSON keys at all), use the
-  // raw text as the spoken message so the lesson doesn't stall with an error.
+  // Last resort: if Claude returned plain prose (no JSON keys at all), use the raw
+  // text as the spoken message so the lesson doesn't stall. Only when allowed (the
+  // caller forbids this on early attempts so it can escalate for proper JSON first).
   const isPlainProse =
+    allowProse &&
     !raw.trimStart().startsWith("{") &&
     !/("say"|"board"|"expect"|"masteryDelta"|"lessonComplete")\s*:/.test(raw);
   const finalSay = sayStr ?? (isPlainProse ? raw.trim().slice(0, 1000) : null);
@@ -330,17 +332,28 @@ export async function getTutorReply(
       return null;
     }
     costUsd += result.costUsd;
-    // When prefill was applied the API returns only what came AFTER the "{" — prepend
-    // it back. When the backend ignored prefill (e.g. AWS) the full JSON is already there.
-    const rawText = result.text.trimStart().startsWith("{") ? result.text : "{" + result.text;
-    const reply = parseReply(rawText);
+    // callClaude already restored any prefill, so the text is complete on every backend.
+    // Accept plain prose only on the LAST attempt — earlier ones escalate for real JSON.
+    const reply = parseReply(result.text, attempt === 2);
     if (reply) return { reply, costUsd };
-    // The model replied but the JSON didn't parse — a fresh sample almost always fixes it.
     console.error(
       `Tutor reply parse failed (attempt ${attempt + 1}/3): ` +
         result.text.replace(/\s+/g, " ").slice(0, 300),
     );
-    if (attempt < 2) await sleep(300);
+    // Escalate: some backends (e.g. AWS, which can't use assistant prefill) occasionally
+    // reply in prose instead of JSON. Show the model its bad output and explicitly demand
+    // JSON-only next time. These corrective messages are LOCAL — never saved to history.
+    if (attempt < 2) {
+      messages.push({ role: "assistant", content: result.text.slice(0, 400) });
+      messages.push({
+        role: "user",
+        content:
+          "That was not valid JSON. Reply to the SAME point again, but output ONLY the JSON " +
+          "object specified in the system prompt — start with { and end with }, with the keys " +
+          "say, board, image, imageAsk, quiz, expect, masteryDelta, lessonComplete. No text before or after.",
+      });
+      await sleep(300);
+    }
   }
   return null; // give up cleanly; the bot shows a soft retry note and history stays clean
 }

@@ -136,6 +136,16 @@ function withPrefill(messages: ClaudeMessage[], prefill?: string): ClaudeMessage
   return [...messages, { role: "assistant", content: prefill }];
 }
 
+/** When a prefill was sent (an assistant turn the model continues), the response
+ *  body contains only the CONTINUATION — put the prefill back so callers always
+ *  receive the complete text. (Backends that ignore prefill must NOT call this.) */
+function prependPrefill(r: ClaudeResult | null, prefill?: string): ClaudeResult | null {
+  if (r && prefill && !r.text.trimStart().startsWith(prefill.trim())) {
+    r.text = prefill + r.text;
+  }
+  return r;
+}
+
 async function callBedrock(opts: ClaudeCall): Promise<ClaudeResult | null> {
   if (!config.bedrockModelId) {
     console.error("Bedrock is configured but BEDROCK_MODEL_ID is empty.");
@@ -144,21 +154,24 @@ async function callBedrock(opts: ClaudeCall): Promise<ClaudeResult | null> {
   const url =
     `https://bedrock-runtime.${config.bedrockRegion}.amazonaws.com` +
     `/model/${encodeURIComponent(config.bedrockModelId)}/invoke`;
-  return postMessages(
-    url,
-    {
-      Authorization: `Bearer ${config.bedrockApiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    {
-      anthropic_version: "bedrock-2023-05-31",
-      max_tokens: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0.6,
-      system: opts.system,
-      messages: withPrefill(opts.messages, opts.prefill),
-    },
-    "Bedrock",
+  return prependPrefill(
+    await postMessages(
+      url,
+      {
+        Authorization: `Bearer ${config.bedrockApiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      {
+        anthropic_version: "bedrock-2023-05-31",
+        max_tokens: opts.maxTokens ?? 1024,
+        temperature: opts.temperature ?? 0.6,
+        system: opts.system,
+        messages: withPrefill(opts.messages, opts.prefill),
+      },
+      "Bedrock",
+    ),
+    opts.prefill,
   );
 }
 
@@ -166,21 +179,24 @@ async function callAnthropic(opts: ClaudeCall): Promise<ClaudeResult | null> {
   const system = opts.cacheSystem
     ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
     : opts.system;
-  return postMessages(
-    "https://api.anthropic.com/v1/messages",
-    {
-      "x-api-key": config.anthropicApiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    {
-      model: config.claudeModel,
-      max_tokens: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0.6,
-      system,
-      messages: withPrefill(opts.messages, opts.prefill),
-    },
-    "Claude",
+  return prependPrefill(
+    await postMessages(
+      "https://api.anthropic.com/v1/messages",
+      {
+        "x-api-key": config.anthropicApiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      {
+        model: config.claudeModel,
+        max_tokens: opts.maxTokens ?? 1024,
+        temperature: opts.temperature ?? 0.6,
+        system,
+        messages: withPrefill(opts.messages, opts.prefill),
+      },
+      "Claude",
+    ),
+    opts.prefill,
   );
 }
 
