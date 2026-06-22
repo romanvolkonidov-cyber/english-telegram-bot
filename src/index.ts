@@ -17,6 +17,7 @@ import {
 } from "./bot/handlers/student.js";
 import { startReminderScheduler } from "./services/reminders.js";
 import { startHomeworkWatcher } from "./services/homeworkWatcher.js";
+import { notifyAdmins } from "./services/adminNotify.js";
 import {
   quizChoice,
   quizOnText,
@@ -162,6 +163,12 @@ bot.on("callback_query:data", async (ctx) => {
       const assignment = await fetchAssignmentById(data.slice("hw:open:".length));
       if (!assignment) {
         await ctx.reply(t(ctx.session.lang, "error_generic"), { parse_mode: "HTML" });
+        await notifyAdmins(ctx.api, {
+          title: "Student saw homework open error",
+          ctx,
+          details: `Missing assignment ${data.slice("hw:open:".length)}`,
+          onlyForStudents: true,
+        });
         return;
       }
       return await startQuiz(ctx, assignment);
@@ -184,6 +191,13 @@ bot.on("callback_query:data", async (ctx) => {
     console.error("callback error:", err);
     try {
       await ctx.reply(t(ctx.session.lang, "error_generic"), { parse_mode: "HTML" });
+      await notifyAdmins(ctx.api, {
+        title: "Student saw callback error",
+        ctx,
+        details: `callback=${data}`,
+        err,
+        onlyForStudents: true,
+      });
     } catch {
       /* ignore */
     }
@@ -214,6 +228,12 @@ bot.on("pre_checkout_query", async (ctx) => {
     await ctx.answerPreCheckoutQuery(true);
   } catch (err) {
     console.error("answerPreCheckoutQuery failed:", err);
+    await notifyAdmins(ctx.api, {
+      title: "Payment pre-checkout failed",
+      ctx,
+      err,
+      onlyForStudents: true,
+    });
   }
 });
 bot.on("message:successful_payment", handleSuccessfulPayment);
@@ -225,6 +245,12 @@ bot.catch(async (err) => {
   try {
     await err.ctx.reply(t(err.ctx.session?.lang ?? config.defaultLanguage, "error_generic"), {
       parse_mode: "HTML",
+    });
+    await notifyAdmins(err.ctx.api, {
+      title: "Student saw unhandled bot error",
+      ctx: err.ctx,
+      err: err.error,
+      onlyForStudents: true,
     });
   } catch {
     /* ignore — chat may be gone or unreachable */

@@ -72,9 +72,9 @@ export const config = {
   /** Gemini model for the tutor's voice (TTS) — reuses GEMINI_API. */
   geminiTtsModel: (process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts").trim(),
   geminiTtsVoice: (process.env.GEMINI_TTS_VOICE || "Kore").trim(),
-  /** Image model for vocabulary pictures (reuses GEMINI_API). Default is a Gemini
-   *  flash-image model (generateContent); set IMAGEN_IMAGE_MODEL=imagen-… to use
-   *  Imagen via the :predict endpoint instead. media.ts auto-detects which. */
+  /** Image model for vocabulary pictures (reuses GEMINI_API). Defaults to a
+   *  Gemini flash-image model (generateContent). Set IMAGEN_IMAGE_MODEL=imagen-4…
+   *  to use Imagen via the :predict endpoint instead. media.ts auto-detects which. */
   imagenImageModel: (process.env.IMAGEN_IMAGE_MODEL || "gemini-2.5-flash-image").trim(),
 
   /** Teacher login used inside the bot. Defaults match the website. */

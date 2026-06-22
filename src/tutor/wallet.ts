@@ -50,6 +50,14 @@ export async function debit(telegramId: string, usd: number): Promise<Wallet> {
   return w;
 }
 
+/** Return allowance when a metered tutor operation failed before benefiting the learner. */
+export async function refund(telegramId: string, usd: number): Promise<Wallet> {
+  const w = await getWallet(telegramId);
+  w.balanceUsd = Math.round((w.balanceUsd + usd) * 1e4) / 1e4;
+  await save(w);
+  return w;
+}
+
 /** Mark the free trial lesson as used (idempotent). */
 export async function markFreeLessonUsed(telegramId: string): Promise<void> {
   const w = await getWallet(telegramId);

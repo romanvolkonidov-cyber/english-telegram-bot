@@ -27,8 +27,15 @@ import {
 import type { LearnerProfile, LessonContext } from "../../tutor/types.js";
 import { downloadTelegramFile, toBase64 } from "../../services/voice.js";
 import { transcribeSpeech } from "../../services/gemini.js";
-import { synthesizeSpeech, generateImage } from "../../services/media.js";
-import { getWallet, debit, creditAllowance, markFreeLessonUsed } from "../../tutor/wallet.js";
+import { synthesizeSpeech, generateImage, type GeneratedImage } from "../../services/media.js";
+import { notifyAdmins } from "../../services/adminNotify.js";
+import {
+  getWallet,
+  debit,
+  refund,
+  creditAllowance,
+  markFreeLessonUsed,
+} from "../../tutor/wallet.js";
 import {
   PACKAGES,
   packageById,
@@ -402,6 +409,13 @@ export async function startLesson(
     `▶️ <b>${esc(topic.title)} — ${esc(lesson.title)}</b>\n🎯 <i>${esc(lesson.canDo)}</i>\n${note}`,
     { parse_mode: "HTML" },
   );
+  await notifyAdmins(ctx.api, {
+    title: "Self-study lesson started",
+    ctx,
+    details:
+      `${topic.target} ${topic.level}: ${topic.title} — ${lesson.title} ` +
+      `(topic=${topicId}, lesson=${lessonId}, ${free ? "free/admin" : "paid"})`,
+  });
   await think(ctx);
 
   const profile = await ensureProfile(ctx);
@@ -419,12 +433,20 @@ async function think(ctx: BotContext): Promise<void> {
 }
 
 /** Send already-generated picture bytes. Returns true if it went through. */
-async function sendPhotoBytes(ctx: BotContext, bytes: Uint8Array): Promise<boolean> {
+async function sendPhotoBytes(ctx: BotContext, image: GeneratedImage): Promise<boolean> {
+  const ext = image.mimeType.includes("jpeg") || image.mimeType.includes("jpg") ? "jpg" : "png";
   try {
-    await ctx.replyWithPhoto(new InputFile(bytes, "picture.png"));
+    await ctx.replyWithPhoto(new InputFile(Buffer.from(image.bytes), `picture.${ext}`));
     return true;
   } catch (err) {
     console.error("tutor send photo failed:", err);
+    await notifyAdmins(ctx.api, {
+      title: "Tutor picture upload failed",
+      ctx,
+      details: `Telegram rejected generated ${image.mimeType} image (${image.bytes.length} bytes).`,
+      err,
+      onlyForStudents: true,
+    });
     return false;
   }
 }
@@ -438,9 +460,22 @@ async function sendImage(ctx: BotContext, prompt: string): Promise<boolean> {
   }
   try {
     const img = await generateImage(prompt);
-    if (img) return await sendPhotoBytes(ctx, img.bytes);
+    if (img) return await sendPhotoBytes(ctx, img);
+    await notifyAdmins(ctx.api, {
+      title: "Tutor picture generation failed",
+      ctx,
+      details: `Prompt: ${prompt}`,
+      onlyForStudents: true,
+    });
   } catch (err) {
     console.error("tutor image failed:", err);
+    await notifyAdmins(ctx.api, {
+      title: "Tutor picture generation error",
+      ctx,
+      details: `Prompt: ${prompt}`,
+      err,
+      onlyForStudents: true,
+    });
   }
   return false;
 }
@@ -452,14 +487,37 @@ async function chargeUsd(
   flow: TutorFlow,
   usd: number,
   label: string,
-): Promise<void> {
-  if (usd <= 0) return;
+): Promise<boolean> {
+  if (usd <= 0) return false;
   flow.lessonCostUsd = Math.round((flow.lessonCostUsd + usd) * 1e4) / 1e4;
   console.log(
     `[tutor] ${label} $${usd.toFixed(4)} | lesson $${flow.lessonCostUsd.toFixed(4)} | ` +
       `budget $${LESSON_BUDGET_USD} | mistakes ${flow.mistakes} | free=${flow.free}`,
   );
-  if (!flow.free) await debit(telegramId(ctx), usd).catch(() => {});
+  if (flow.free) return true;
+  try {
+    await debit(telegramId(ctx), usd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Undo a charge for a tutor turn that failed before it produced anything useful. */
+async function refundUsd(
+  ctx: BotContext,
+  flow: TutorFlow,
+  usd: number,
+  label: string,
+  walletCharged = true,
+): Promise<void> {
+  if (usd <= 0) return;
+  flow.lessonCostUsd = Math.max(0, Math.round((flow.lessonCostUsd - usd) * 1e4) / 1e4);
+  console.log(
+    `[tutor] refund ${label} $${usd.toFixed(4)} | lesson $${flow.lessonCostUsd.toFixed(4)} | ` +
+      `budget $${LESSON_BUDGET_USD} | free=${flow.free}`,
+  );
+  if (!flow.free && walletCharged) await refund(telegramId(ctx), usd).catch(() => {});
 }
 
 /** Charge for one tutor turn: Claude tokens + (if produced) a voice note and a picture. */
@@ -560,10 +618,10 @@ async function speak(ctx: BotContext, text: string): Promise<boolean> {
 async function renderReply(
   ctx: BotContext,
   result: TutorTurnResult | null,
-  preImage?: Uint8Array | null,
-): Promise<void> {
+  preImage?: GeneratedImage | null,
+): Promise<boolean> {
   const flow = tutorFlow(ctx);
-  if (!flow) return;
+  if (!flow) return false;
 
   if (!result) {
     // The tutor couldn't be generated (a rare API outage, after several retries). Don't
@@ -578,7 +636,13 @@ async function renderReply(
           "Just send your answer again and we'll keep going 🙏",
       ),
     );
-    return;
+    await notifyAdmins(ctx.api, {
+      title: "Student saw tutor connection error",
+      ctx,
+      details: "Tutor generation returned null after retries.",
+      onlyForStudents: true,
+    });
+    return false;
   }
   const reply = result.reply;
 
@@ -623,7 +687,7 @@ async function renderReply(
     await ctx.reply(tr(ctx, "🎉 Урок пройден — отличная работа!", "🎉 Lesson complete — nice work!"), {
       reply_markup: kb,
     });
-    return;
+    return true;
   }
 
   // Multiple-choice check.
@@ -636,7 +700,7 @@ async function renderReply(
     });
     const q = (reply.board ? `${reply.board}\n\n` : "") + `❓ ${reply.quiz.question}`;
     await replyRich(ctx, q, kb);
-    return;
+    return true;
   }
 
   // Normal turn — just show the board (if any). The tutor's spoken message already
@@ -645,6 +709,7 @@ async function renderReply(
   flow.pendingQuiz = null;
   flow.awaiting = reply.expect === "text" ? "text" : reply.expect === "none" ? "none" : "voice";
   if (reply.board) await replyRich(ctx, reply.board);
+  return true;
 }
 
 /**
@@ -657,7 +722,7 @@ async function advance(
   flow: TutorFlow,
   profile: LearnerProfile,
   lesson: MicroLesson,
-): Promise<void> {
+): Promise<boolean> {
   const lc = lessonContext(flow.topicId, lesson);
   const first = await getTutorReply(profile, lc, flow.history);
   if (!first) return await renderReply(ctx, null);
@@ -682,19 +747,44 @@ async function advance(
         first.reply.say,
       );
       if (grounded) {
-        await renderReply(
+        const rendered = await renderReply(
           ctx,
           { reply: grounded.reply, costUsd: first.costUsd + grounded.costUsd },
-          gen.bytes,
+          gen,
         );
         // Leave a note of what the picture showed, so later turns keep the context.
         const last = flow.history[flow.history.length - 1];
-        if (last?.role === "tutor") last.text += `\n[picture shown: ${first.reply.image}]`;
-        return;
+        if (rendered && last?.role === "tutor") last.text += `\n[picture shown: ${first.reply.image}]`;
+        return rendered;
       }
-      // Grounding call failed — still show the picture with the original turn (no redraw).
-      return await renderReply(ctx, first, gen.bytes);
+      await notifyAdmins(ctx.api, {
+        title: "Tutor grounded picture viewing failed",
+        ctx,
+        details: `Generated ${gen.mimeType} image (${gen.bytes.length} bytes), but Claude did not produce a grounded picture task. Prompt: ${first.reply.image}`,
+        onlyForStudents: true,
+      });
+      // If Claude could not look at the generated image and produce a grounded task, do
+      // not show the student's vague "look at the picture" lead-in. Continue with a
+      // normal exercise so the lesson stays coherent.
+      const retry = await getTutorReply(
+        profile,
+        lc,
+        flow.history,
+        "[The app generated a picture, but the tutor could not reliably inspect it. Do NOT use, show, or mention a picture. First respond to the student's last answer above, then give a normal spoken or written exercise.]",
+      );
+      if (retry) {
+        retry.reply.image = null;
+        retry.reply.imageAsk = false;
+        return await renderReply(ctx, retry);
+      }
+      return await renderReply(ctx, null);
     }
+    await notifyAdmins(ctx.api, {
+      title: "Tutor grounded picture generation failed",
+      ctx,
+      details: `Prompt: ${first.reply.image}`,
+      onlyForStudents: true,
+    });
     // Image generation FAILED. Don't render the "look at the picture" lead-in (there is
     // no picture). Retry once with a one-off nudge (NOT stored in history) so the tutor
     // first responds to the student's last answer, then gives a non-picture exercise.
@@ -713,7 +803,7 @@ async function advance(
     // rather than a broken "look at the picture" turn with no picture. History stays clean.
     return await renderReply(ctx, null);
   }
-  await renderReply(ctx, first);
+  return await renderReply(ctx, first);
 }
 
 // ── Student input ────────────────────────────────────────────────────────────
@@ -732,13 +822,18 @@ export async function tutorOnText(ctx: BotContext, text: string): Promise<void> 
     return;
   }
   if (!(await gate(ctx, flow))) return; // out of balance — buy menu shown
+  const historyLen = flow.history.length;
   flow.history.push({ role: "student", text: text.trim() });
   if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   await think(ctx);
   const profile = await ensureProfile(ctx);
   const lesson = getLesson(flow.topicId, flow.lessonId);
-  if (!lesson) return;
-  await advance(ctx, flow, profile, lesson);
+  if (!lesson) {
+    flow.history.splice(historyLen);
+    return;
+  }
+  const rendered = await advance(ctx, flow, profile, lesson);
+  if (!rendered) flow.history.splice(historyLen);
 }
 
 export async function tutorOnVoice(ctx: BotContext): Promise<void> {
@@ -790,14 +885,23 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
     );
     return;
   }
-  await chargeUsd(ctx, flow, MEDIA_COST_USD.stt, "stt"); // we transcribed their voice
+  const walletCharged = await chargeUsd(ctx, flow, MEDIA_COST_USD.stt, "stt"); // we transcribed their voice
 
+  const historyLen = flow.history.length;
   flow.history.push({ role: "student", text: `[spoken aloud] ${transcript}` });
   if (!(await overageAllowed(ctx, flow))) return; // over budget — consent/buy shown
   const profile = await ensureProfile(ctx);
   const lesson = getLesson(flow.topicId, flow.lessonId);
-  if (!lesson) return;
-  await advance(ctx, flow, profile, lesson);
+  if (!lesson) {
+    flow.history.splice(historyLen);
+    await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
+    return;
+  }
+  const rendered = await advance(ctx, flow, profile, lesson);
+  if (!rendered) {
+    flow.history.splice(historyLen);
+    await refundUsd(ctx, flow, MEDIA_COST_USD.stt, "stt", walletCharged);
+  }
 }
 
 export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promise<void> {
@@ -982,6 +1086,13 @@ export async function startPurchase(ctx: BotContext, pkgId: string): Promise<voi
     });
   } catch (err) {
     console.error("sendInvoice failed:", err);
+    await notifyAdmins(ctx.api, {
+      title: "Student saw payment invoice error",
+      ctx,
+      details: `Package: ${pkg.id} (${pkg.stars} Stars)`,
+      err,
+      onlyForStudents: true,
+    });
     await ctx.reply(
       tr(
         ctx,
@@ -1001,6 +1112,11 @@ export async function handleSuccessfulPayment(ctx: BotContext): Promise<void> {
   const pkg = packageById(pkgId);
   if (!pkg) {
     await ctx.reply(tr(ctx, "✅ Оплата получена, спасибо!", "✅ Payment received, thank you!"));
+    await notifyAdmins(ctx.api, {
+      title: "Stars payment received with unknown package",
+      ctx,
+      details: `payload=${payload || "(empty)"}`,
+    });
     return;
   }
   const wallet = await creditAllowance(telegramId(ctx), pkg.allowanceUsd).catch(() => null);
@@ -1020,4 +1136,11 @@ export async function handleSuccessfulPayment(ctx: BotContext): Promise<void> {
     ),
     { parse_mode: "HTML" },
   );
+  await notifyAdmins(ctx.api, {
+    title: "Stars payment received",
+    ctx,
+    details:
+      `${pkg.title}: ${pkg.stars} Stars, allowance $${pkg.allowanceUsd.toFixed(2)}, ` +
+      `balance ≈ ${lessons} lessons`,
+  });
 }
