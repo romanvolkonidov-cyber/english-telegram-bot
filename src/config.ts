@@ -45,7 +45,7 @@ export const config = {
   anthropicApiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
 
   /** Claude model used to teach (direct Anthropic API). */
-  claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
+  claudeModel: (process.env.CLAUDE_MODEL || "claude-opus-4-8").trim(),
 
   /**
    * Alternative to the direct Anthropic API: Amazon Bedrock ("Claude on AWS").

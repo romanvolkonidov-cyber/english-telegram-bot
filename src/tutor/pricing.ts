@@ -14,12 +14,12 @@
  *  Verify your real payout rate and adjust (commonly ≈ $0.013). */
 export const STAR_NET_USD = 0.013;
 
-/** Claude token prices ($ per token) — Sonnet 4.6 (the default teaching model). */
+/** Claude token prices ($ per token) — Opus 4.8 (the default teaching model). */
 const CLAUDE_RATES = {
-  input: 3 / 1_000_000,
-  output: 15 / 1_000_000,
-  cacheRead: 0.3 / 1_000_000,
-  cacheWrite: 3.75 / 1_000_000,
+  input: 15 / 1_000_000,
+  output: 75 / 1_000_000,
+  cacheRead: 1.5 / 1_000_000,
+  cacheWrite: 18.75 / 1_000_000,
 };
 
 export interface ClaudeUsage {
@@ -49,15 +49,12 @@ export const MEDIA_COST_USD = {
 
 /**
  * The API budget INCLUDED in one lesson — a hard cap. A full, picture-rich,
- * voice-every-turn lesson PLUS up to ~10 mistakes (each mistake costs extra: the
- * tutor re-teaches and re-tests that type) fits inside this, so the student is
- * never asked for more stars until a lesson goes beyond it. It is also the unit
- * we show as "≈ N lessons". Worst-case measured cost of such a heavy lesson is
- * ≈ $1.1–1.5 (lots of generated images + a grounded picture call each), so $1.50
- * leaves headroom. Typical lessons cost far less, so students usually get more
+ * voice-every-turn lesson PLUS up to ~10 mistakes fits inside this. With Opus 4.8
+ * a heavy lesson (30 turns + voice + 2 images) costs roughly $3.50–3.80, so $4.00
+ * leaves safe headroom. Typical lessons cost less, so students usually get more
  * lessons than advertised — and the profit guarantee below holds regardless.
  */
-export const LESSON_BUDGET_USD = 1.5;
+export const LESSON_BUDGET_USD = 4.0;
 
 /** Give every new student ONE free lesson (best conversion hook). The free
  *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
@@ -83,9 +80,9 @@ export interface StarPackage {
 }
 
 export const PACKAGES: StarPackage[] = [
-  { id: "single", stars: 200, lessons: 1, allowanceUsd: 1.5, title: "1 урок" },
-  { id: "pack", stars: 1700, lessons: 10, allowanceUsd: 15.0, title: "10 уроков · выгодно 🔥" },
-  { id: "big", stars: 4500, lessons: 30, allowanceUsd: 45.0, title: "30 уроков · лучшая цена" },
+  { id: "single", stars: 500,   lessons: 1,  allowanceUsd: 4.0,   title: "1 урок" },
+  { id: "pack",   stars: 4500,  lessons: 10, allowanceUsd: 40.0,  title: "10 уроков · выгодно 🔥" },
+  { id: "big",    stars: 12000, lessons: 30, allowanceUsd: 120.0, title: "30 уроков · лучшая цена" },
 ];
 
 export function packageById(id: string): StarPackage | undefined {
