@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import ffmpegPath from "ffmpeg-static";
 import { config, hasGemini } from "../config.js";
+import { fetchWithRetry } from "./http.js";
 
 /**
  * Voice and image generation for the /learn tutor — Gemini for TTS and Imagen
@@ -48,7 +49,7 @@ function pcmToOgg(pcm: Buffer, sampleRate: number): Promise<Uint8Array | null> {
 export async function synthesizeSpeech(text: string): Promise<Uint8Array | null> {
   if (!hasGemini || !text.trim()) return null;
   try {
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `${GEN_URL}/${config.geminiTtsModel}:generateContent?key=${config.geminiApiKey}`,
       {
         method: "POST",
@@ -63,11 +64,9 @@ export async function synthesizeSpeech(text: string): Promise<Uint8Array | null>
           },
         }),
       },
+      { label: "Gemini TTS", timeoutMs: 30_000 },
     );
-    if (!res.ok) {
-      console.error("Gemini TTS error:", res.status, await res.text());
-      return null;
-    }
+    if (!res) return null;
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
     };
@@ -100,18 +99,19 @@ export interface GeneratedImage {
 
 /** Gemini "flash image" / "pro image" models — generateContent, image in inlineData. */
 async function genViaGemini(model: string, prompt: string): Promise<GeneratedImage | null> {
-  const res = await fetch(`${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: imagePrompt(prompt) }] }],
-      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
-    }),
-  });
-  if (!res.ok) {
-    console.error(`Gemini image error (${model}):`, res.status, await res.text());
-    return null;
-  }
+  const res = await fetchWithRetry(
+    `${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: imagePrompt(prompt) }] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+      }),
+    },
+    { label: `Gemini image (${model})`, attempts: 3, timeoutMs: 40_000 },
+  );
+  if (!res) return null;
   const data = (await res.json()) as {
     candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
   };
@@ -125,18 +125,19 @@ async function genViaGemini(model: string, prompt: string): Promise<GeneratedIma
 
 /** Imagen models — the :predict endpoint (different request/response shape from Gemini). */
 async function genViaImagen(model: string, prompt: string): Promise<GeneratedImage | null> {
-  const res = await fetch(`${GEN_URL}/${model}:predict?key=${config.geminiApiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      instances: [{ prompt: imagePrompt(prompt) }],
-      parameters: { sampleCount: 1 },
-    }),
-  });
-  if (!res.ok) {
-    console.error(`Imagen error (${model}):`, res.status, await res.text());
-    return null;
-  }
+  const res = await fetchWithRetry(
+    `${GEN_URL}/${model}:predict?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instances: [{ prompt: imagePrompt(prompt) }],
+        parameters: { sampleCount: 1 },
+      }),
+    },
+    { label: `Imagen (${model})`, attempts: 3, timeoutMs: 40_000 },
+  );
+  if (!res) return null;
   const data = (await res.json()) as {
     predictions?: { bytesBase64Encoded?: string; mimeType?: string }[];
   };

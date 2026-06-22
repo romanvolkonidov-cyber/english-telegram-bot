@@ -1,4 +1,5 @@
 import { config, hasGemini } from "../config.js";
+import { fetchWithRetry } from "./http.js";
 
 export interface VoiceEvaluation {
   transcript: string;
@@ -16,7 +17,7 @@ export async function transcribeSpeech(
 ): Promise<string | null> {
   if (!hasGemini) return null;
   try {
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`,
       {
         method: "POST",
@@ -37,11 +38,9 @@ export async function transcribeSpeech(
           generationConfig: { temperature: 0, maxOutputTokens: 400 },
         }),
       },
+      { label: "Gemini transcribe", timeoutMs: 30_000 },
     );
-    if (!res.ok) {
-      console.error("Gemini transcribe error:", res.status, await res.text());
-      return null;
-    }
+    if (!res) return null;
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
@@ -94,7 +93,7 @@ TRANSCRIPT: [verbatim transcription]
 FEEDBACK: [your feedback]`;
 
   try {
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`,
       {
         method: "POST",
@@ -111,12 +110,10 @@ FEEDBACK: [your feedback]`;
           generationConfig: { temperature: 0.65, maxOutputTokens: 800 },
         }),
       },
+      { label: "Gemini voice-eval", timeoutMs: 40_000 },
     );
 
-    if (!res.ok) {
-      console.error("Gemini API error:", res.status, await res.text());
-      return null;
-    }
+    if (!res) return null;
 
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
