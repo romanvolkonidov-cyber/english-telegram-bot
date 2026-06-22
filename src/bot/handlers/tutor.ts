@@ -417,10 +417,13 @@ export async function startLesson(
       `(topic=${topicId}, lesson=${lessonId}, ${free ? "free/admin" : "paid"})`,
   });
   const stopThinking = keepThinking(ctx);
-  const profile = await ensureProfile(ctx);
-  const flow = tutorFlow(ctx);
-  if (flow) await advance(ctx, flow, profile, lesson);
-  else stopThinking();
+  try {
+    const profile = await ensureProfile(ctx);
+    const flow = tutorFlow(ctx);
+    if (flow) await advance(ctx, flow, profile, lesson);
+  } finally {
+    stopThinking(); // always clear the typing indicator — otherwise it loops forever
+  }
 }
 
 /** Send a chat action every 4 s until the returned stop function is called.
