@@ -702,7 +702,9 @@ async function advance(
       retry.reply.imageAsk = false;
       return await renderReply(ctx, retry);
     }
-    // Retry also failed (AI unreachable) — fall through.
+    // Both the picture AND the recovery generation failed — show a clean "try again"
+    // rather than a broken "look at the picture" turn with no picture. History stays clean.
+    return await renderReply(ctx, null);
   }
   await renderReply(ctx, first);
 }

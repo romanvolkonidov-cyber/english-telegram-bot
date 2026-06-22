@@ -15,6 +15,8 @@ const HISTORY_WINDOW = 12;
 const TUTOR_NAME = "Emily";
 const OWNER_NAME = "Roman";
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext): string {
   const level = lesson.level || "A1";
   const target = lesson.target || "English";
@@ -24,6 +26,14 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
       : "a complete beginner (CEFR A1)";
   const native = profile.nativeLanguage || "Russian";
   const immersion = native.toLowerCase() === target.toLowerCase(); // help language == target
+  const nativeIsRussian = native.toLowerCase().startsWith("rus");
+  // The illustrative phrases throughout this prompt are written in Russian. When the
+  // student's language is NOT Russian, spell out that those are only examples — otherwise
+  // the model tends to open the lesson in Russian even though the help language is set
+  // to something else.
+  const langWarn = nativeIsRussian
+    ? ""
+    : ` This prompt shows some example phrases written in Russian (e.g. «Скажи вслух», «Понятно?») — those are ONLY illustrations of tone; ALWAYS express them in ${native}, and NEVER address the student in Russian.`;
   const moreTarget =
     level === "A2"
       ? ` Since the student is A2, you can use a little more simple ${target} for familiar things, but switch back to ${native} the moment something is new or hard.`
@@ -46,6 +56,8 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
 
   return `You are a warm, patient, funny human ${target} tutor giving a live one-on-one online lesson to ${levelDesc}.
 
+LANGUAGE — your working/help language is ${native}, and you use it from your VERY FIRST message onward. Write EVERYTHING you address to the student in ${native}: the greeting, your self-introduction, explanations, instructions, praise and corrections. The ${target} you are teaching appears only as the target words/sentences and as whatever you ask the student to say, write, or read.${langWarn}
+
 TEACHING STYLE
 - YOUR IDENTITY: your name is ${TUTOR_NAME} and you are ${OWNER_NAME}'s ${target} assistant. At the VERY START of a lesson (your first message, when the student hasn't said anything yet) greet the student and introduce yourself ONCE, in ${native}, as ${TUTOR_NAME}, ${OWNER_NAME}'s ${target} assistant — then begin teaching. Do NOT introduce yourself again on any later turn.
 - ANSWER QUESTIONS anytime. The student may ask you anything about ${target} — grammar, a word, pronunciation, why a rule works, a translation, how to say something. When they ask, ANSWER it clearly and helpfully first (in ${native}, with ${target} examples), then continue the lesson. Welcome questions warmly like a real tutor. If they ask something truly unrelated to learning ${target}, answer briefly or kindly steer back.
@@ -64,6 +76,7 @@ TEACHING STYLE
 | I | am | I am reading |
 
   Keep boards compact and clean — a short quote-box rule plus a small table or a few example lines is ideal.
+- WHEN YOU SHOW ${target} TEXT TO READ, never leave it at a bare «посмотри»/"look at this" — always give a concrete thing to DO with it. A natural, friendly move is to ask the student to READ IT ALOUD and send it as a voice message (set "expect":"voice"), e.g. «Прочитай это вслух и пришли голосовым.» Reading aloud is great speaking practice. At this presenting/reading stage keep it light — let them read and warmly encourage them; you don't need to nit-pick every sound. Save detailed correction for the focused practice exercises.
 - VOICE FIRST — speaking is the most important skill. MOST practice should have the student SAY their answer out loud (set "expect":"voice"). Use "expect":"text" only for genuinely written tasks (spelling, word order, a written fill-in-the-blank) and "quiz" for multiple choice.
 - MAKE THE ACTION CRYSTAL-CLEAR AND SPECIFIC. The app does NOT add any "reply" hint — YOUR words are the only instruction, so the student must know EXACTLY what to do. End every turn by telling them precisely what to do and with which words: «Скажи вслух: I am reading.» / «Скажи это предложение про себя вслух.» / «Напиши пропущенное слово.» / «Выбери правильный вариант ниже.» NEVER end with a vague «ответь» / «попробуй» / "reply" with nothing concrete to reply. Give exactly ONE such instruction per turn.
 - EVERY turn must end with that one concrete task or question to do RIGHT NOW. After an explanation, do NOT stop at «понятно?» alone — either ask a check the student can actually answer («Скажи «понятно», если ясно, или задай вопрос»), or (better) give the first small exercise immediately with an exact instruction. Never leave the student wondering what to reply.
@@ -135,12 +148,33 @@ function unescapeJson(s: string): string {
     .replace(/\\\\/g, "\\");
 }
 
-/** Pull one `"key": "value"` string field out of a JSON-ish blob, tolerating
- *  literal newlines inside the value (which break strict JSON.parse). */
+/** The fields of a TutorReply, used to anchor where one value ends and the next
+ *  begins when salvaging a value that contains stray unescaped double-quotes. */
+const REPLY_KEYS = "say|board|image|imageAsk|quiz|expect|masteryDelta|lessonComplete";
+
+/**
+ * Pull one `"key": "value"` string field out of a JSON-ish blob. Robust to the
+ * two ways the model breaks strict JSON: literal newlines inside the value, and
+ * UNescaped inner double-quotes (e.g. quoting an English word with "). The primary
+ * regex captures lazily up to the next known field key or the closing brace, so an
+ * inner " no longer truncates the value; a strict well-formed match is the fallback.
+ */
 function salvageString(blob: string, key: string): string | null {
-  const m = blob.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
-  const v = m ? unescapeJson(m[1]!).trim() : "";
-  return v ? v : null;
+  // Primary: value runs until the next known key ("…", "board": …) or the end "}".
+  const loose = blob.match(
+    new RegExp(`"${key}"\\s*:\\s*"([\\s\\S]*?)"\\s*(?:,\\s*"(?:${REPLY_KEYS})"\\s*:|\\}\\s*$)`),
+  );
+  if (loose) {
+    const v = unescapeJson(loose[1]!).trim();
+    if (v) return v;
+  }
+  // Fallback: a strictly well-formed JSON string value (escaped quotes only).
+  const strict = blob.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+  if (strict) {
+    const v = unescapeJson(strict[1]!).trim();
+    if (v) return v;
+  }
+  return null;
 }
 
 /** Pull a candidate JSON object out of the model's reply (strip fences / prose). */
@@ -249,25 +283,28 @@ export async function getTutorReply(
   }
   if (nudge) messages.push({ role: "user", content: nudge });
   const system = buildSystemPrompt(profile, lesson);
-  const call = () =>
-    callClaude({ system, messages, maxTokens: 1200, temperature: 0.6, cacheSystem: true });
 
-  const result = await call();
-  if (!result) return null;
-  let reply = parseReply(result.text);
-  let costUsd = result.costUsd;
-  // Most parse failures are a single bad generation (e.g. an unescaped quote/newline
-  // breaking the JSON). Retry once before giving up — never show a "repeat?" fallback,
-  // which would land in history and make the model echo it.
-  if (!reply) {
-    const retry = await call();
-    if (retry) {
-      costUsd += retry.costUsd;
-      reply = parseReply(retry.text);
+  // Retry BOTH transient API failures (overload/network) AND unparseable generations
+  // (an unescaped quote/newline can corrupt one response). The real cost of every
+  // attempt is accumulated so the wallet is metered fairly. We never fall back to a
+  // canned "could you repeat?" line — that would land in history and be echoed forever.
+  let costUsd = 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await callClaude({
+      system,
+      messages,
+      maxTokens: 1200,
+      temperature: attempt === 0 ? 0.6 : 0.3, // calmer sampling on a retry → cleaner JSON
+      cacheSystem: true,
+    });
+    if (result) {
+      costUsd += result.costUsd;
+      const reply = parseReply(result.text);
+      if (reply) return { reply, costUsd };
     }
+    if (attempt < 2) await sleep(400 * (attempt + 1)); // brief backoff before retrying
   }
-  if (!reply) return null; // give up cleanly; the bot shows a "try again" and history stays clean
-  return { reply, costUsd };
+  return null; // give up cleanly; the bot shows "try again" and history stays clean
 }
 
 /**
@@ -306,20 +343,32 @@ export async function describeImageTurn(
       { type: "image", source: { type: "base64", media_type: mediaType, data: toBase64(image) } },
     ],
   });
-  const result = await callClaude({
-    system: buildSystemPrompt(profile, lesson),
-    messages,
-    maxTokens: 900,
-    temperature: 0.5,
-    cacheSystem: true,
-  });
-  if (!result) return null;
-  const reply = parseReply(result.text);
-  if (!reply) return null;
-  // The picture is already on screen; never re-trigger generation from this turn.
-  reply.image = null;
-  reply.imageAsk = false;
-  return { reply, costUsd: result.costUsd };
+  // The image makes this call pricier, so retry just once — but cover both an API
+  // hiccup and an unparseable reply, accumulating cost. On total failure the caller
+  // still shows the picture with the original lead-in (a graceful fallback).
+  const system = buildSystemPrompt(profile, lesson);
+  let costUsd = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await callClaude({
+      system,
+      messages,
+      maxTokens: 900,
+      temperature: attempt === 0 ? 0.5 : 0.3,
+      cacheSystem: true,
+    });
+    if (result) {
+      costUsd += result.costUsd;
+      const reply = parseReply(result.text);
+      if (reply) {
+        // The picture is already on screen; never re-trigger generation from this turn.
+        reply.image = null;
+        reply.imageAsk = false;
+        return { reply, costUsd };
+      }
+    }
+    if (attempt < 1) await sleep(400);
+  }
+  return null;
 }
 
 /** Move mastery toward the new value, clamped to 0..3; completion jumps to 3. */
