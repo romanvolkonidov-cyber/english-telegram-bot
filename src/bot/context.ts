@@ -12,8 +12,6 @@ export type Flow =
       target: "lessons" | "rounds";
       studentId: string;
       studentName: string;
-      telegramUserId: number;
-      chatId: number;
     }
   | {
       kind: "quiz";

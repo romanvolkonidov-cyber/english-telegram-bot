@@ -2,6 +2,7 @@ import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext } from "../context.js";
 import { generateRound, GAME_LEVELS } from "../../tutor/wordgame.js";
 import { generateImage, synthesizeSpeech } from "../../services/media.js";
+import { startLoadingHints } from "../loadingHints.js";
 import { getCachedImageFileId, cacheImageFileId } from "../../tutor/gameImages.js";
 import { MEDIA_COST_USD } from "../../tutor/pricing.js";
 import {
@@ -121,6 +122,10 @@ async function runRound(ctx: BotContext): Promise<void> {
   // player never sees the bot go silent. Stopped once the question is on screen;
   // the outer finally guarantees cleanup on any early return.
   let stopThinking = () => {};
+  // "I'm running to you…" pics if the FIRST round is slow (first turn does the most
+  // work). Cancelled the moment the question is ready.
+  const firstRound = flow.total === 0;
+  let cancelHints = () => {};
   try {
     // Is a round available? (peek only — we charge AFTER a successful round, so a
     // failed generation never costs the student a round, and "Try again" is free.)
@@ -131,16 +136,18 @@ async function runRound(ctx: BotContext): Promise<void> {
     }
 
     stopThinking = keepThinking(ctx, "typing");
+    if (firstRound) cancelHints = startLoadingHints(ctx);
 
     const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
     const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
 
     if (!round) {
+      cancelHints();
       await ctx.reply(
         tr(
           ctx,
-          "⏳ Не удалось сгенерировать раунд — попробуй ещё раз (это бесплатно).",
-          "⏳ Couldn't generate a round — please try again (this is free).",
+          "⏳ Небольшая заминка на стороне ИИ — он сейчас перегружен, обычно это быстро проходит. Попробуй ещё раз (это бесплатно).",
+          "⏳ A brief hiccup on the AI's side — it's momentarily overloaded and usually recovers quickly. Try again (this is free).",
         ),
         {
           reply_markup: new InlineKeyboard()
@@ -209,6 +216,8 @@ async function runRound(ctx: BotContext): Promise<void> {
     );
     const captionOpts = { caption: header, parse_mode: "HTML" as const, reply_markup: kb };
 
+    cancelHints(); // the question is ready — stop the "I'm running…" pics
+
     // Photo + question in ONE message so the answer buttons attach to the picture.
     // (No early return — we still send the voice note afterwards.)
     let photoSent = false;
@@ -257,6 +266,7 @@ async function runRound(ctx: BotContext): Promise<void> {
       }
     }
   } finally {
+    cancelHints(); // safety: clears any pending "I'm running…" pics on early return
     stopThinking(); // safety: clears the interval on any early return above
     flow.busy = false;
   }

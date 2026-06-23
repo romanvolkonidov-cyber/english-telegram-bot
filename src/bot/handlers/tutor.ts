@@ -1,5 +1,6 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext, Flow } from "../context.js";
+import { startLoadingHints } from "../loadingHints.js";
 import { esc } from "../../util/format.js";
 import { config, hasTutorLLM, hasGemini } from "../../config.js";
 import {
@@ -459,11 +460,13 @@ export async function startLesson(
       `(topic=${topicId}, lesson=${lessonId}, ${free ? "free/admin" : "paid"})`,
   });
   const stopThinking = keepThinking(ctx);
+  const cancelHints = startLoadingHints(ctx); // "I'm running…" pics if the first turn is slow
   try {
     const profile = await ensureProfile(ctx);
     const flow = tutorFlow(ctx);
     if (flow) await advance(ctx, flow, profile, lesson);
   } finally {
+    cancelHints();
     stopThinking(); // always clear the typing indicator — otherwise it loops forever
   }
 }
@@ -695,10 +698,10 @@ async function renderReply(
     await ctx.reply(
       tr(
         ctx,
-        "⏳ Секундочку — связь с репетитором на мгновение прервалась. Твой прогресс и баланс в полной сохранности. " +
-          "Просто отправь свой ответ ещё раз 🙏",
-        "⏳ One moment — the connection to the tutor hiccuped for a second. Your progress and balance are completely safe. " +
-          "Just send your answer again and we'll keep going 🙏",
+        "⏳ Небольшая заминка на стороне ИИ — он сейчас перегружен. Обычно это проходит за пару минут. " +
+          "Твой прогресс и баланс в полной сохранности — просто отправь свой ответ ещё раз 🙏",
+        "⏳ A brief hiccup on the AI's side — it's momentarily overloaded. This usually clears up within a couple of minutes. " +
+          "Your progress and balance are completely safe — just send your answer again 🙏",
       ),
     );
     await notifyAdmins(ctx.api, {
