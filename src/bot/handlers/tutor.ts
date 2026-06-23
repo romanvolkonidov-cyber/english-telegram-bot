@@ -872,13 +872,21 @@ export async function tutorOnVoice(ctx: BotContext): Promise<void> {
   }
 
   if (!transcript) {
-    await ctx.reply(
-      tr(
-        ctx,
-        "🎧 Не расслышал. Скажи ещё раз или напиши текстом?",
-        "🎧 I couldn't quite catch that. Could you say it again, or type it?",
-      ),
-    );
+    // Don't ask the student to repeat themselves — just treat it as an attempt
+    // and let Claude continue the lesson naturally.
+    await chargeUsd(ctx, flow, MEDIA_COST_USD.stt, "stt");
+    const historyLen = flow.history.length;
+    flow.history.push({ role: "student", text: "[student spoke — audio was unclear, but accept the attempt and continue the lesson warmly]" });
+    const stopThinking = keepThinking(ctx);
+    try {
+      const profile = await ensureProfile(ctx);
+      const lesson = getLesson(flow.topicId, flow.lessonId);
+      if (!lesson) { flow.history.splice(historyLen); return; }
+      const rendered = await advance(ctx, flow, profile, lesson);
+      if (!rendered) flow.history.splice(historyLen);
+    } finally {
+      stopThinking();
+    }
     return;
   }
   const walletCharged = await chargeUsd(ctx, flow, MEDIA_COST_USD.stt, "stt"); // we transcribed their voice
