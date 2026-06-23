@@ -52,7 +52,7 @@ export async function generateRound(
     `  "imagePrompt": "vivid 6-word English scene or object for the item",\n` +
     `  "correct": "the best ${toLevel} synonym (a word OR phrase)",\n` +
     `  "distractors": ["${toLevel} item related but NOT a synonym", "another ${toLevel} non-synonym", "a third ${toLevel} non-synonym"],\n` +
-    `  "explain": "one sentence in ${nativeLanguage}: why correct is the best synonym"\n` +
+    `  "explain": "2 short sentences in ${nativeLanguage}: (1) confirm the answer and say what word + correct both mean; (2) a useful nuance — how correct differs from word (register, strength, connotation, or a typical collocation) so the student really understands the pair, not just matches it"\n` +
     `}\n\n` +
     `Rules:\n` +
     `- word: an everyday ${fromLevel} item — a single word OR a short PHRASE. Phrases are encouraged and make the game richer: collocations (e.g. "make a decision", "heavy rain"), phrasal verbs (e.g. "give up", "find out"), and common fixed expressions. Mix it up across rounds; plain words are fine too. Prefer something concrete/picturable when you can.\n` +
@@ -61,12 +61,12 @@ export async function generateRound(
     `- you MAY make ONE distractor a light, playful choice — a sound-alike or look-alike near-miss — to make it fun. Keep it 100% clean and appropriate for ALL ages: nothing rude, scary, sexual, violent, political, or offensive.\n` +
     `- all four options must be different\n` +
     `- imagePrompt: a real-life scene/object that could be a photograph (no text); wholesome and age-appropriate\n` +
-    `- definition and explain: keep short and clear`;
+    `- definition: keep very short; explain: clear and genuinely informative (max 2 sentences)`;
 
   const result = await callClaude({
     system: SYSTEM,
     messages: [{ role: "user", content: prompt }],
-    maxTokens: 300,
+    maxTokens: 400,
     temperature: 0.9,
     prefill: "{",
   });

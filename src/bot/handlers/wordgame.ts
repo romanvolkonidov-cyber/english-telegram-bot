@@ -1,7 +1,7 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext } from "../context.js";
 import { generateRound, GAME_LEVELS } from "../../tutor/wordgame.js";
-import { generateImage } from "../../services/media.js";
+import { generateImage, synthesizeSpeech } from "../../services/media.js";
 import { getCachedImageFileId, cacheImageFileId } from "../../tutor/gameImages.js";
 import { MEDIA_COST_USD } from "../../tutor/pricing.js";
 import {
@@ -145,10 +145,22 @@ async function runRound(ctx: BotContext): Promise<void> {
       freshImage = await generateImage(round.imagePrompt, { style: "photo" }).catch(() => null);
       if (freshImage) imageCostUsd = MEDIA_COST_USD.image;
     }
-    const roundCostUsd = round.costUsd + imageCostUsd;
+
+    // A short voice note that reads the word and each option aloud, so a student
+    // who wants to LISTEN hears how everything is pronounced. One TTS call per
+    // round (flat ~$0.01, pure audio — no extra LLM call). Best-effort: if speech
+    // isn't available we just skip it and pay nothing.
+    const letter = (i: number) => String.fromCharCode(65 + i);
+    const voiceScript =
+      `${round.word}. Which word means the same as ${round.word}? ` +
+      round.options.map((o, i) => `${letter(i)}: ${o}.`).join(" ");
+    const voiceOgg = await synthesizeSpeech(voiceScript).catch(() => null);
+    const voiceCostUsd = voiceOgg ? MEDIA_COST_USD.tts : 0;
+
+    const roundCostUsd = round.costUsd + imageCostUsd + voiceCostUsd;
 
     // Round is good — now consume it and book its real cost (Claude + any image we
-    // actually generated). Fire an admin profit report every N rounds this student plays.
+    // generated + any voice). Fire an admin profit report every N rounds played.
     const milestone = await commitGameRound(
       tg(ctx),
       roundCostUsd,
@@ -173,7 +185,7 @@ async function runRound(ctx: BotContext): Promise<void> {
     // Build options keyboard.
     const kb = new InlineKeyboard();
     round.options.forEach((opt, i) => {
-      kb.text(`${String.fromCharCode(65 + i)}. ${opt}`, `wg:ans:${i}`).row();
+      kb.text(`${letter(i)}. ${opt}`, `wg:ans:${i}`).row();
     });
     kb.text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
 
@@ -185,10 +197,12 @@ async function runRound(ctx: BotContext): Promise<void> {
     const captionOpts = { caption: header, parse_mode: "HTML" as const, reply_markup: kb };
 
     // Photo + question in ONE message so the answer buttons attach to the picture.
+    // (No early return — we still send the voice note afterwards.)
+    let photoSent = false;
     if (cachedFileId) {
       try {
         await ctx.replyWithPhoto(cachedFileId, captionOpts);
-        return;
+        photoSent = true;
       } catch {
         /* a stale file_id can fail — fall through to text rather than block play */
       }
@@ -199,15 +213,24 @@ async function runRound(ctx: BotContext): Promise<void> {
           new InputFile(Buffer.from(freshImage.bytes), `word.${ext}`),
           captionOpts,
         );
+        photoSent = true;
         // Remember Telegram's file_id so this word's image is free from now on.
         const fileId = sent.photo?.[sent.photo.length - 1]?.file_id;
         if (fileId) await cacheImageFileId(round.word, fileId);
-        return;
       } catch {
         /* photo send failed — fall through to a text-only round */
       }
     }
-    await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
+    if (!photoSent) await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
+
+    // The pronunciation voice note, after the question (the buttons are already up).
+    if (voiceOgg) {
+      try {
+        await ctx.replyWithVoice(new InputFile(voiceOgg, "wordgame.ogg"));
+      } catch {
+        /* non-fatal — the round is fully playable without the audio */
+      }
+    }
   } finally {
     flow.busy = false;
   }
