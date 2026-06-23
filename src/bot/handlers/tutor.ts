@@ -1029,6 +1029,9 @@ export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promis
     await ctx.answerCallbackQuery();
     return;
   }
+  // Single-shot: clear the pending quiz immediately so a repeat tap (nervous
+  // double-press) bails above instead of scoring twice and starting a second turn.
+  flow.pendingQuiz = null;
   const correct = optIndex === quiz.correctIndex;
   await ctx.answerCallbackQuery({
     text: correct ? tr(ctx, "✅ Верно!", "✅ Correct!") : tr(ctx, "❌ Не совсем", "❌ Not quite"),
@@ -1089,6 +1092,10 @@ export async function tutorOverageContinue(ctx: BotContext): Promise<void> {
 export async function tutorNext(ctx: BotContext): Promise<void> {
   const flow = tutorFlow(ctx);
   if (!flow) return await showTopics(ctx);
+  // Lock the "Next lesson" button so a repeat tap can't start the lesson twice.
+  try {
+    await ctx.editMessageReplyMarkup();
+  } catch { /* ignore */ }
   const next = nextLesson(flow.topicId, flow.lessonId);
   if (!next) {
     await ctx.reply(

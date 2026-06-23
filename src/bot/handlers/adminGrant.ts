@@ -25,14 +25,23 @@ function tr(ctx: BotContext, ru: string, en: string): string {
   return ctx.session.lang === "en" ? en : ru;
 }
 
-/** All Telegram connections (wallet key + chat) for a homework studentId. */
-async function connectionsForStudent(
+/**
+ * The Telegram account a student actually uses: among all logins linked to their
+ * studentId, the one that logged in most recently. (One student can have more than
+ * one linked account — e.g. shared credentials or a relink — and crediting them ALL
+ * would hand out the bonus several times. Crediting the active one lands it where
+ * the student studies, exactly once.) Returns null if the student never logged in.
+ */
+async function activeConnectionForStudent(
   studentId: string,
-): Promise<{ telegramUserId: number; chatId: number }[]> {
-  const conns = await listStudentConnections().catch(() => []);
-  return conns
-    .filter((x) => x.studentId === studentId)
-    .map((x) => ({ telegramUserId: x.telegramUserId, chatId: x.chatId }));
+): Promise<{ telegramUserId: number; chatId: number; linkedCount: number } | null> {
+  const conns = (await listStudentConnections().catch(() => [])).filter(
+    (x) => x.studentId === studentId,
+  );
+  if (conns.length === 0) return null;
+  conns.sort((a, b) => b.lastActiveMs - a.lastActiveMs); // most recent first
+  const best = conns[0]!;
+  return { telegramUserId: best.telegramUserId, chatId: best.chatId, linkedCount: conns.length };
 }
 
 /** Step 1: admin tapped a bonus button — start the flow and ask for a quantity. */
@@ -43,8 +52,8 @@ export async function startBonusGrant(
 ): Promise<void> {
   if (!isAdmin(ctx)) return;
 
-  const conns = await connectionsForStudent(studentId);
-  if (conns.length === 0) {
+  const active = await activeConnectionForStudent(studentId);
+  if (!active) {
     await ctx.reply(
       tr(
         ctx,
@@ -97,9 +106,10 @@ export async function bonusOnText(ctx: BotContext, text: string): Promise<void> 
 
   ctx.session.flow = undefined;
 
-  // Re-resolve connections now (fresh), and credit every linked Telegram account.
-  const conns = await connectionsForStudent(flow.studentId);
-  if (conns.length === 0) {
+  // Re-resolve fresh and credit ONLY the account the student actually uses (their
+  // most recently active login). Crediting all linked logins would multiply the bonus.
+  const active = await activeConnectionForStudent(flow.studentId);
+  if (!active) {
     await ctx.reply(
       tr(
         ctx,
@@ -110,7 +120,6 @@ export async function bonusOnText(ctx: BotContext, text: string): Promise<void> 
     return;
   }
 
-  // The student-facing message and the admin verification line.
   const studentMsg =
     flow.target === "lessons"
       ? tr(
@@ -124,28 +133,34 @@ export async function bonusOnText(ctx: BotContext, text: string): Promise<void> 
           `🎁 You've been given <b>${qty}</b> bonus Word-game rounds! Tap /wordgame 🎮`,
         );
 
-  const report: string[] = [];
+  const wallKey = String(active.telegramUserId);
+  // If the student has more than one linked login, tell the admin which one got it.
+  const multi =
+    active.linkedCount > 1
+      ? tr(
+          ctx,
+          ` (из ${active.linkedCount} привязанных аккаунтов — начислено активному)`,
+          ` (of ${active.linkedCount} linked accounts — credited the active one)`,
+        )
+      : "";
   try {
-    for (const conn of conns) {
-      const wallKey = String(conn.telegramUserId);
-      if (flow.target === "lessons") {
-        const wallet = await creditAllowance(wallKey, qty * LESSON_BUDGET_USD);
-        report.push(`tg ${wallKey}: ≈ ${approxLessons(wallet.balanceUsd)} lessons ($${wallet.balanceUsd.toFixed(2)})`);
-      } else {
-        const gw = await creditGameRounds(wallKey, qty, 0);
-        report.push(`tg ${wallKey}: ${gw.paidRoundsLeft} rounds left`);
-      }
-      // Notify the student on that chat (best-effort).
-      await ctx.api.sendMessage(conn.chatId, studentMsg, { parse_mode: "HTML" }).catch(() => {});
+    let detail: string;
+    if (flow.target === "lessons") {
+      const wallet = await creditAllowance(wallKey, qty * LESSON_BUDGET_USD);
+      detail = `tg ${wallKey}: ≈ ${approxLessons(wallet.balanceUsd)} lessons ($${wallet.balanceUsd.toFixed(2)})`;
+    } else {
+      const gw = await creditGameRounds(wallKey, qty, 0);
+      detail = `tg ${wallKey}: ${gw.paidRoundsLeft} rounds left`;
     }
+    // Notify the student on that chat (best-effort).
+    await ctx.api.sendMessage(active.chatId, studentMsg, { parse_mode: "HTML" }).catch(() => {});
 
     const what = flow.target === "lessons" ? tr(ctx, "уроков", "lessons") : tr(ctx, "раундов", "rounds");
-    const accounts = conns.length > 1 ? tr(ctx, ` (аккаунтов: ${conns.length})`, ` (${conns.length} accounts)`) : "";
     await ctx.reply(
       tr(
         ctx,
-        `✅ Начислено <b>${qty}</b> ${what} ученику <b>${flow.studentName}</b>${accounts}.\n<code>${report.join("\n")}</code>`,
-        `✅ Added <b>${qty}</b> ${what} for <b>${flow.studentName}</b>${accounts}.\n<code>${report.join("\n")}</code>`,
+        `✅ Начислено <b>${qty}</b> ${what} ученику <b>${flow.studentName}</b>${multi}.\n<code>${detail}</code>`,
+        `✅ Added <b>${qty}</b> ${what} for <b>${flow.studentName}</b>${multi}.\n<code>${detail}</code>`,
       ),
       { parse_mode: "HTML" },
     );

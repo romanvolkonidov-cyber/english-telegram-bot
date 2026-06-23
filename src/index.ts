@@ -65,6 +65,29 @@ import {
 
 const bot = new Bot<BotContext>(config.botToken);
 
+// ── Per-chat serialization ──
+// By default grammY processes a chat's updates concurrently. An impatient user
+// mashing buttons (or firing several voice notes) while the bot is "thinking"
+// would then run overlapping handlers — double charges, scrambled lesson history,
+// and raced in-memory guards (each update loads its own session copy). This makes
+// every update from one chat wait for the previous one to finish, in order, so the
+// session load/save and all guards become reliable. Keyed by chat id; the map
+// self-cleans when a chat goes idle. (Placed before session() so even the session
+// read/write is serialized.)
+const chatQueues = new Map<number, Promise<unknown>>();
+bot.use(async (ctx, next) => {
+  const key = ctx.chat?.id ?? ctx.from?.id;
+  if (key === undefined) return next();
+  const prev = chatQueues.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => {}).then(() => next());
+  chatQueues.set(key, run);
+  try {
+    await run;
+  } finally {
+    if (chatQueues.get(key) === run) chatQueues.delete(key);
+  }
+});
+
 bot.use(
   session({
     initial: (): SessionData => initialSession(config.defaultLanguage),

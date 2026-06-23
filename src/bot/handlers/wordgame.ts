@@ -94,6 +94,13 @@ export async function startGameLevel(
   fromLevel: string,
   toLevel: string,
 ): Promise<void> {
+  // If we're already mid-generation on a freshly-started game, ignore a second
+  // level tap (mashing the level menu mustn't spin up parallel games).
+  if (ctx.session.flow?.kind === "wordgame" && ctx.session.flow.busy) return;
+  // Lock the level-menu buttons so re-tapping them does nothing.
+  try {
+    await ctx.editMessageReplyMarkup();
+  } catch { /* ignore */ }
   ctx.session.flow = {
     kind: "wordgame",
     fromLevel,
@@ -115,8 +122,10 @@ async function runRound(ctx: BotContext): Promise<void> {
   const flow = ctx.session.flow?.kind === "wordgame" ? ctx.session.flow : null;
   if (!flow) return;
 
-  // Double-tap guard: ignore a second "Next word" while one is still generating.
-  if (flow.busy) return;
+  // Double-tap guard: ignore a repeat "Next word" while one is still generating,
+  // OR while a question is already on screen waiting to be answered (a nervous
+  // re-tap must not generate or charge a second round).
+  if (flow.busy || flow.correctIndex !== undefined) return;
   flow.busy = true;
   // Keep a "typing" indicator alive through generation+verification+image so the
   // player never sees the bot go silent. Stopped once the question is on screen;
@@ -298,6 +307,18 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     return;
   }
 
+  // Single-shot: snapshot the round and clear it IMMEDIATELY, so a second tap (a
+  // nervous double-press on the options) sees no pending question and bails above —
+  // no double-scoring, no double follow-up.
+  const correctIndex = flow.correctIndex;
+  const options = flow.currentOptions ?? [];
+  const currentExplain = flow.currentExplain;
+  flow.currentOptions = undefined;
+  flow.correctIndex = undefined;
+  flow.currentExplain = undefined;
+  flow.currentWord = undefined;
+  flow.roundCostUsd = undefined;
+
   await ctx.answerCallbackQuery();
 
   // Lock the buttons.
@@ -305,15 +326,15 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     await ctx.editMessageReplyMarkup();
   } catch { /* ignore */ }
 
-  const correct = optIndex === flow.correctIndex;
+  const correct = optIndex === correctIndex;
   if (correct) flow.score += 1;
 
   // Persist the outcome (lifetime totals, streak, weekly leaderboard counter).
   const displayName = ctx.session.name ?? ctx.from?.first_name ?? "Player";
   const stats = await recordGameAnswer(tg(ctx), correct, displayName).catch(() => null);
 
-  const chosenWord = flow.currentOptions?.[optIndex] ?? "";
-  const correctWord = flow.currentOptions?.[flow.correctIndex] ?? "";
+  const chosenWord = options[optIndex] ?? "";
+  const correctWord = options[correctIndex] ?? "";
 
   const verdict = correct
     ? tr(ctx, `✅ Верно! <b>${chosenWord}</b> — это лучший синоним.`, `✅ Correct! <b>${chosenWord}</b> is the best synonym.`)
@@ -323,19 +344,7 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
         `❌ Not quite. You chose: <b>${chosenWord}</b>\n✅ Best synonym: <b>${correctWord}</b>`,
       );
 
-  const explainLine = flow.currentExplain
-    ? `\n\n<i>${flow.currentExplain}</i>`
-    : "";
-
-  // Per-round cost is no longer reported here — admins get a consolidated profit
-  // report every GAME_REPORT_EVERY_ROUNDS rounds (see reportMilestone) instead.
-
-  // Clear round state.
-  flow.currentOptions = undefined;
-  flow.correctIndex = undefined;
-  flow.currentExplain = undefined;
-  flow.currentWord = undefined;
-  flow.roundCostUsd = undefined;
+  const explainLine = currentExplain ? `\n\n<i>${currentExplain}</i>` : "";
 
   const scoreInfo = tr(
     ctx,
