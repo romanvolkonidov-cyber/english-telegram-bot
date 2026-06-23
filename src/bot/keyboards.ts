@@ -14,6 +14,8 @@ export function mainMenuKeyboard(lang: Language): InlineKeyboard {
     .row()
     .text(t(lang, "menu_learn"), "learn")
     .row()
+    .text(t(lang, "menu_wordgame"), "wg:levels")
+    .row()
     .text(t(lang, "menu_language"), "lang:menu")
     .text(t(lang, "menu_logout"), "logout");
 }

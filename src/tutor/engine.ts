@@ -11,9 +11,8 @@ import type { LearnerProfile, LessonContext, TutorReply, TutorTurn } from "./typ
 /** How many recent turns of history to send (keeps prompts small and cheap). */
 const HISTORY_WINDOW = 12;
 
-/** The tutor's persona: a female English name, presented as the owner's assistant. */
-const TUTOR_NAME = "Emily";
-const OWNER_NAME = "Roman";
+/** The tutor's persona: a female English name. */
+const TUTOR_NAME = "Violet";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -21,10 +20,18 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
   const level = lesson.level || "A1";
   const target = lesson.target || "English";
   const levelDesc =
-    level === "A2"
-      ? "an elementary learner (CEFR A2): they already know the basics — the present tense, everyday vocabulary, simple questions — and are ready for the past, the future, plans, and slightly longer sentences"
-      : "a complete beginner (CEFR A1)";
+    level === "B1"
+      ? "an intermediate learner (CEFR B1): they can already handle everyday conversation, the main tenses (present, past, future), and connected sentences — and are ready for the present perfect, narrative past, conditionals, the passive, modals of deduction/obligation, relative clauses, and gerund vs infinitive, in longer and more natural discourse"
+      : level === "A2"
+        ? "an elementary learner (CEFR A2): they already know the basics — the present tense, everyday vocabulary, simple questions — and are ready for the past, the future, plans, and slightly longer sentences"
+        : "a complete beginner (CEFR A1)";
   const native = profile.nativeLanguage || "Russian";
+  // Greet the student by THEIR name when we know it. Never leak any other name
+  // (e.g. the bot owner's) — without a known name, greet warmly with no name.
+  const studentName = (profile.name || "").trim();
+  const nameGuidance = studentName
+    ? `The student's name is ${studentName} — you may greet them by it.`
+    : `You do NOT know the student's name — greet them warmly WITHOUT using any name, and never guess or invent one.`;
   const immersion = native.toLowerCase() === target.toLowerCase(); // help language == target
   const nativeIsRussian = native.toLowerCase().startsWith("rus");
   // The illustrative phrases throughout this prompt are written in Russian. When the
@@ -35,9 +42,11 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
     ? ""
     : ` This prompt shows some example phrases written in Russian (e.g. «Скажи вслух», «Понятно?») — those are ONLY illustrations of tone; ALWAYS express them in ${native}, and NEVER address the student in Russian.`;
   const moreTarget =
-    level === "A2"
-      ? ` Since the student is A2, you can use a little more simple ${target} for familiar things, but switch back to ${native} the moment something is new or hard.`
-      : "";
+    level === "B1"
+      ? ` Since the student is B1, you can run more of the lesson in simple ${target} — explanations, instructions, and examples — dropping back to ${native} only to clarify something genuinely new, tricky, or abstract.`
+      : level === "A2"
+        ? ` Since the student is A2, you can use a little more simple ${target} for familiar things, but switch back to ${native} the moment something is new or hard.`
+        : "";
   const bilingual = immersion
     ? `Teach entirely in ${target}, kept simple and clear for CEFR ${level}. Only drop in a word of the student's own language if they are truly stuck.`
     : `The student is a ${native}-speaking learner of ${target} at CEFR ${level} who cannot yet follow a whole lesson run only in ${target}. Conduct the lesson in ${native}: greetings, instructions, explanations, encouragement and corrections all in ${native}. ${target} is the TARGET — the target words, example sentences, and whatever you ask the student to say or write are in ${target} (add a short ${native} gloss when it helps). Keep ${native} as the working language at this level; do NOT drift into ${target}-only.${moreTarget}`;
@@ -61,7 +70,7 @@ export function buildSystemPrompt(profile: LearnerProfile, lesson: LessonContext
 LANGUAGE — your working/help language is ${native}, and you use it from your VERY FIRST message onward. Write EVERYTHING you address to the student in ${native}: the greeting, your self-introduction, explanations, instructions, praise and corrections. The ${target} you are teaching appears only as the target words/sentences and as whatever you ask the student to say, write, or read.${langWarn}
 
 TEACHING STYLE
-- YOUR IDENTITY: your name is ${TUTOR_NAME} and you are ${OWNER_NAME}'s ${target} assistant. At the VERY START of a lesson (your first message, when the student hasn't said anything yet) greet the student and introduce yourself ONCE, in ${native}, as ${TUTOR_NAME}, ${OWNER_NAME}'s ${target} assistant — then, in ONE short sentence, tell them the real-life payoff of today's lesson: what they will actually be able to DO after it (e.g. «После урока сможешь заказать кофе по-английски» or «Ты научишься рассказывать о себе в аэропорту»). Keep it concrete and motivating, then begin teaching. Do NOT introduce yourself again on any later turn.
+- YOUR IDENTITY: your name is ${TUTOR_NAME} and you are the student's friendly personal ${target} assistant. ${nameGuidance} At the VERY START of a lesson (your first message, when the student hasn't said anything yet) greet the student and introduce yourself ONCE, in ${native}, as ${TUTOR_NAME}, their ${target} assistant — then, in ONE short sentence, tell them the real-life payoff of today's lesson: what they will actually be able to DO after it (e.g. «После урока сможешь заказать кофе по-английски» or «Ты научишься рассказывать о себе в аэропорту»). Keep it concrete and motivating, then begin teaching. Do NOT introduce yourself again on any later turn.
 - ANSWER QUESTIONS anytime. The student may ask you anything about ${target} — grammar, a word, pronunciation, why a rule works, a translation, how to say something. When they ask, ANSWER it clearly and helpfully first (in ${native}, with ${target} examples), then continue the lesson. Welcome questions warmly like a real tutor. If they ask something truly unrelated to learning ${target}, answer briefly or kindly steer back.
 - AMERICAN ENGLISH — always model the American pronunciation, American spelling (color not colour, apartment not flat, subway not tube, elevator not lift, etc.), and American idioms. Every example sentence should sound like something a real American would actually say in daily life. Avoid stiff or formal constructions unless the lesson specifically calls for formal register.
 - PRACTICAL EVERYDAY LANGUAGE — every lesson, whatever its focus (grammar, vocabulary, pronunciation), MUST arm the student with at least 2–3 complete, ready-to-use sentences they can say out loud in a real situation TODAY. Not isolated words. Not abstract rules. Real sentences: ordering at a coffee shop, texting a friend, shopping, talking about weekend plans, describing your apartment. Introduce these sentences early and make sure the student can produce them by the end. If there are two equally correct options, always pick the one that sounds more natural in casual American speech.
@@ -360,6 +369,51 @@ export async function getTutorReply(
     }
   }
   return null; // give up cleanly; the bot shows a soft retry note and history stays clean
+}
+
+/**
+ * After a lesson finishes, pull the list of target-language words/phrases the
+ * student actually practised, from the lesson transcript. Used for the admin
+ * "words learned" report — best-effort, returns [] if the call fails. Kept cheap
+ * (tiny output, temperature 0) and NOT metered to the student: it's an owner tool.
+ */
+export async function extractLearnedWords(
+  lesson: LessonContext,
+  history: TutorTurn[],
+): Promise<string[]> {
+  const target = lesson.target || "English";
+  const transcript = history
+    .map((t) => `${t.role}: ${t.text}`)
+    .join("\n")
+    .slice(-6000);
+  if (!transcript.trim()) return [];
+  const result = await callClaude({
+    system: `You extract vocabulary from a ${target} lesson transcript. Return ONLY a JSON array of strings.`,
+    messages: [
+      {
+        role: "user",
+        content:
+          `List the ${target} words and short phrases that were TAUGHT or PRACTISED in this lesson ` +
+          `(only ${target}-language items the student learned — not the help-language glosses). ` +
+          `Return ONLY a JSON array like ["word","phrase"], max 20 items, no duplicates.\n\n` +
+          `Transcript:\n${transcript}`,
+      },
+    ],
+    maxTokens: 300,
+    temperature: 0,
+    prefill: "[",
+  });
+  if (!result) return [];
+  try {
+    const raw = result.text.trimStart();
+    const text = raw.startsWith("[") ? raw : "[" + raw;
+    const end = text.lastIndexOf("]");
+    const arr = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return [...new Set(arr.map((x) => String(x).trim()).filter(Boolean))].slice(0, 20);
+  } catch {
+    return [];
+  }
 }
 
 /**

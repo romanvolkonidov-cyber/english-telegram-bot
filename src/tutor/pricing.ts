@@ -14,12 +14,12 @@
  *  Verify your real payout rate and adjust (commonly ≈ $0.013). */
 export const STAR_NET_USD = 0.013;
 
-/** Claude token prices ($ per token) — Opus 4.8 (the default teaching model). */
+/** Claude token prices ($ per token) — Sonnet 4.6 (the default teaching model). */
 const CLAUDE_RATES = {
-  input: 15 / 1_000_000,
-  output: 75 / 1_000_000,
-  cacheRead: 1.5 / 1_000_000,
-  cacheWrite: 18.75 / 1_000_000,
+  input: 3 / 1_000_000,
+  output: 15 / 1_000_000,
+  cacheRead: 0.30 / 1_000_000,
+  cacheWrite: 3.75 / 1_000_000,
 };
 
 export interface ClaudeUsage {
@@ -50,7 +50,7 @@ export const MEDIA_COST_USD = {
 /** Expected cost of one typical lesson — used to display approximate lesson
  *  counts to students and to cap the free trial. Lessons are NOT hard-stopped
  *  at this value; actual spend varies and is reported after each lesson. */
-export const LESSON_BUDGET_USD = 1.5;
+export const LESSON_BUDGET_USD = 0.15;
 
 /** Give every new student ONE free lesson (best conversion hook). The free
  *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
@@ -76,7 +76,7 @@ export interface StarPackage {
 }
 
 export const PACKAGES: StarPackage[] = [
-  { id: "pack", stars: 2000, lessons: 10, allowanceUsd: 15.0, title: "10 уроков 🔥" },
+  { id: "pack", stars: 150, lessons: 10, allowanceUsd: 1.50, title: "10 уроков 🔥" },
 ];
 
 export function packageById(id: string): StarPackage | undefined {
@@ -92,6 +92,7 @@ export function packageNetUsd(p: StarPackage): number {
 export function packageProfitUsd(p: StarPackage): number {
   return Math.round((packageNetUsd(p) - p.allowanceUsd) * 100) / 100;
 }
+
 
 /** Stars the student effectively pays per lesson (lower = better deal). */
 export function starsPerLesson(p: StarPackage): number {
@@ -120,6 +121,112 @@ for (const p of PACKAGES) {
     throw new Error(
       `Package "${p.id}" would sell at a LOSS: allowance $${p.allowanceUsd} ≥ ` +
         `net $${packageNetUsd(p).toFixed(2)}. Raise stars or lower allowance.`,
+    );
+  }
+}
+
+// ── Word-synonym game pricing ─────────────────────────────────────────────────
+//
+// The economics here are spelled out so the margin is auditable, because the
+// game's margin is thin (an image dominates the per-round cost). Everything is
+// derived from three knobs: the real cost of a round, the profit margin we want,
+// and what a Star is actually worth to us (STAR_NET_USD) — i.e. what lands in our
+// account in USD *after* Telegram's cut and the conversion to USDT, NOT the price
+// the student pays Telegram.
+
+/**
+ * Conservative estimate of one round's REAL API cost:
+ *   ~$0.04 image (MEDIA_COST_USD.image) + ~$0.02 Claude (a short structured-JSON
+ *   call; comfortably covers Sonnet 4.6 and stays close even on a pricier model).
+ * The actual cost is metered live per round and used for the profit reports — this
+ * constant only drives pricing and the boot-time guarantee below.
+ */
+export const GAME_ROUND_COST_USD = 0.06;
+
+/** Profit we want on top of real expenses, as a fraction of our net revenue. */
+export const GAME_TARGET_MARGIN = 0.25;
+
+/**
+ * Minimum Stars we must charge per round so that, after Telegram + conversion,
+ * net revenue (stars × STAR_NET_USD) covers cost AND the target margin:
+ *   net ≥ cost × (1 + margin)  ⇒  stars ≥ cost × (1 + margin) / STAR_NET_USD
+ * At cost $0.06, margin 25 %, STAR_NET_USD $0.013 → ceil(5.77) = 6 ⭐/round.
+ */
+export const GAME_MIN_STARS_PER_ROUND = Math.ceil(
+  (GAME_ROUND_COST_USD * (1 + GAME_TARGET_MARGIN)) / STAR_NET_USD,
+);
+
+/** Nominal single-round price, used for the "free value" hook in the buy menu. */
+export const GAME_STARS_PER_ROUND = GAME_MIN_STARS_PER_ROUND;
+
+/**
+ * Free trial rounds. NOTE: each free round still costs us ~GAME_ROUND_COST_USD,
+ * so 20 free rounds ≈ $1.20 of real acquisition cost per new student. That cost
+ * surfaces in the first milestone report (no revenue yet → shown as a loss).
+ */
+export const GAME_FREE_ROUNDS = 20;
+
+/** Admins get a profit report every N rounds a given student plays. */
+export const GAME_REPORT_EVERY_ROUNDS = 20;
+
+export interface GamePackage {
+  id: string;
+  stars: number;
+  rounds: number;
+  title: string;
+}
+
+/**
+ * Purchasable top-up packages. Priced at 7–8 ⭐/round (above the 6 ⭐ floor) so the
+ * margin clears 25 % with headroom; bigger pack = cheaper per round = better deal.
+ * The boot-time guard below refuses to start if any pack would miss the margin.
+ */
+export const GAME_PACKAGES: GamePackage[] = [
+  { id: "wg_s", stars: 160, rounds: 20, title: "20 раундов"     }, // 8 ⭐/round
+  { id: "wg_m", stars: 420, rounds: 60, title: "60 раундов 🔥"  }, // 7 ⭐/round
+];
+
+export function gamePackageById(id: string): GamePackage | undefined {
+  return GAME_PACKAGES.find((p) => p.id === id);
+}
+
+/** Stars the student effectively pays per round in this package (lower = better). */
+export function gameStarsPerRound(p: GamePackage): number {
+  return Math.round(p.stars / p.rounds);
+}
+
+/** Net USD we receive for the package after Telegram's cut + conversion. */
+export function gamePackageNetUsd(p: GamePackage): number {
+  return p.stars * STAR_NET_USD;
+}
+
+/** The most this package can cost us in real API spend (rounds × est. round cost). */
+export function gamePackageCostUsd(p: GamePackage): number {
+  return p.rounds * GAME_ROUND_COST_USD;
+}
+
+/** Estimated profit on a package = net revenue − real API cost. */
+export function gamePackageProfitUsd(p: GamePackage): number {
+  return Math.round((gamePackageNetUsd(p) - gamePackageCostUsd(p)) * 100) / 100;
+}
+
+// ── Game profit guarantee (checked at boot) ──────────────────────────────────
+// Unlike a lesson, a round's cost isn't hard-capped — but it's small and bounded
+// (one short Claude call + one image). As long as each package's net revenue
+// clears its estimated cost plus the target margin, every sale is profitable.
+// Crash at startup rather than ship a pack that would erode the margin.
+for (const p of GAME_PACKAGES) {
+  if (gameStarsPerRound(p) < GAME_MIN_STARS_PER_ROUND) {
+    throw new Error(
+      `Game pack "${p.id}" is ${gameStarsPerRound(p)} ⭐/round, below the ` +
+        `${GAME_MIN_STARS_PER_ROUND} ⭐ floor needed for a ${GAME_TARGET_MARGIN * 100}% margin.`,
+    );
+  }
+  const required = gamePackageCostUsd(p) * (1 + GAME_TARGET_MARGIN);
+  if (gamePackageNetUsd(p) < required) {
+    throw new Error(
+      `Game pack "${p.id}" misses the margin: net $${gamePackageNetUsd(p).toFixed(2)} < ` +
+        `cost+margin $${required.toFixed(2)}. Raise stars or lower rounds.`,
     );
   }
 }

@@ -66,7 +66,7 @@ async function ttsOnce(model: string, text: string): Promise<Uint8Array | null> 
         },
       }),
     },
-    { label: `Gemini TTS (${model})`, attempts: 2, timeoutMs: 30_000 },
+    { label: `Gemini TTS (${model})`, attempts: 2, timeoutMs: 20_000 },
   );
   if (!res) return null;
   const data = (await res.json()) as {
@@ -109,8 +109,18 @@ export async function synthesizeSpeech(text: string): Promise<Uint8Array | null>
   return null; // every model failed — caller shows the text instead
 }
 
-/** Wrap a short description into a clean flashcard-style image prompt. */
-function imagePrompt(subject: string): string {
+/** Visual style for a generated picture. */
+export type ImageStyle = "illustration" | "photo";
+
+/** Wrap a short description into a clean image prompt in the requested style. */
+function imagePrompt(subject: string, style: ImageStyle = "illustration"): string {
+  if (style === "photo") {
+    return (
+      `A realistic, high-quality color photograph of: ${subject}. ` +
+      "Real-life scene, natural lighting, true-to-life detail, like a stock photo. " +
+      "Not a drawing, not a cartoon, not an illustration. No text or words in the image."
+    );
+  }
   return (
     `A clear, simple, friendly illustration for an English beginner's vocabulary flashcard: ${subject}. ` +
     "Bright, clean, no text or words in the image."
@@ -126,14 +136,14 @@ export interface GeneratedImage {
 }
 
 /** Gemini "flash image" / "pro image" models — generateContent, image in inlineData. */
-async function genViaGemini(model: string, prompt: string): Promise<GeneratedImage | null> {
+async function genViaGemini(model: string, prompt: string, style: ImageStyle): Promise<GeneratedImage | null> {
   const res = await fetchWithRetry(
     `${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: imagePrompt(prompt) }] }],
+        contents: [{ parts: [{ text: imagePrompt(prompt, style) }] }],
         generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
       }),
     },
@@ -152,14 +162,14 @@ async function genViaGemini(model: string, prompt: string): Promise<GeneratedIma
 }
 
 /** Imagen models — the :predict endpoint (different request/response shape from Gemini). */
-async function genViaImagen(model: string, prompt: string): Promise<GeneratedImage | null> {
+async function genViaImagen(model: string, prompt: string, style: ImageStyle): Promise<GeneratedImage | null> {
   const res = await fetchWithRetry(
     `${GEN_URL}/${model}:predict?key=${config.geminiApiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        instances: [{ prompt: imagePrompt(prompt) }],
+        instances: [{ prompt: imagePrompt(prompt, style) }],
         parameters: { sampleCount: 1 },
       }),
     },
@@ -176,11 +186,11 @@ async function genViaImagen(model: string, prompt: string): Promise<GeneratedIma
 }
 
 /** Call the right API for a model id: imagen-* → :predict, otherwise generateContent. */
-async function tryImageModel(model: string, prompt: string): Promise<GeneratedImage | null> {
+async function tryImageModel(model: string, prompt: string, style: ImageStyle): Promise<GeneratedImage | null> {
   try {
     return model.toLowerCase().startsWith("imagen")
-      ? await genViaImagen(model, prompt)
-      : await genViaGemini(model, prompt);
+      ? await genViaImagen(model, prompt, style)
+      : await genViaGemini(model, prompt, style);
   } catch (err) {
     console.error(`image model ${model} threw:`, err);
     return null;
@@ -205,13 +215,17 @@ let imageGenOff = false; // tripped after repeated total failures (reset on rest
  * may be an imagen-* or a gemini-*-image id), then known-good fallbacks, and
  * remembers whichever works so later calls are direct.
  */
-export async function generateImage(prompt: string): Promise<GeneratedImage | null> {
+export async function generateImage(
+  prompt: string,
+  opts: { style?: ImageStyle } = {},
+): Promise<GeneratedImage | null> {
   if (!hasGemini || !prompt.trim() || imageGenOff) return null;
+  const style = opts.style ?? "illustration";
   const candidates = [workingImageModel, config.imagenImageModel, ...IMAGE_MODEL_FALLBACKS].filter(
     (m, i, a): m is string => !!m && a.indexOf(m) === i,
   );
   for (const model of candidates) {
-    const img = await tryImageModel(model, prompt);
+    const img = await tryImageModel(model, prompt, style);
     if (img) {
       if (workingImageModel !== model) {
         workingImageModel = model;

@@ -26,7 +26,7 @@ export type LessonFocus =
   | "review";
 
 /** CEFR levels the tutor offers. */
-export type CEFRLevel = "A1" | "A2";
+export type CEFRLevel = "A1" | "A2" | "B1";
 
 /** The language a course teaches (its TARGET). */
 export type TargetLanguage = "English" | "Portuguese";
@@ -810,6 +810,258 @@ const PT_A1_TOPICS: Omit<Topic, "level" | "target">[] = [
   },
 ];
 
+/**
+ * B1 (intermediate) English curriculum. Twelve themed units following the
+ * World Link 2 (4th ed.) scope — My Life, Let's Eat!, Mysteries, Trends, My
+ * Neighborhood, Goals, Celebrations, Once Upon a Time, Work, Stay in Touch,
+ * Technology, Travel — set to a standard B1 grammar progression: the present
+ * perfect, future forms, modals of possibility/obligation, relative clauses,
+ * gerund vs infinitive, past narrative (used to / past continuous), the passive,
+ * reported speech and the first conditional. Topics 37–48.
+ */
+const B1_TOPICS: Omit<Topic, "level" | "target">[] = [
+  {
+    id: 37,
+    slug: "my-life",
+    title: "My Life",
+    summary: "Talk about people you know and your routines vs. what's happening now.",
+    lessons: [
+      { id: "37.1", title: "People in my life", focus: "vocabulary", canDo: "I can describe my relationships.", vocab: ["classmate", "coworker", "neighbor", "relative", "close friend"] },
+      { id: "37.2", title: "Personality adjectives", focus: "vocabulary", canDo: "I can describe what people are like.", vocab: ["outgoing", "generous", "reliable", "ambitious", "easygoing"] },
+      { id: "37.3", title: "Present simple vs continuous", focus: "grammar", canDo: "I can contrast routines with actions happening now.", grammar: "present simple vs present continuous", note: "Habits/facts (every day) vs now/temporary (right now, these days)." },
+      { id: "37.4", title: "Stative verbs", focus: "grammar", canDo: "I can use verbs that aren't usually continuous.", grammar: "stative verbs (know, like, want, believe, belong)", note: "I know him (NOT I'm knowing). Contrast with action verbs." },
+      { id: "37.5", title: "Review: simple past", focus: "grammar", canDo: "I can tell what happened, with regular and irregular verbs.", grammar: "simple past (regular + common irregular)", note: "Affirmative, negative (didn't), questions (did). Recycle key irregulars." },
+      { id: "37.6", title: "Adverbs of frequency", focus: "grammar", canDo: "I can say how often I do things precisely.", grammar: "frequency adverbs & expressions", note: "usually/hardly ever/once a week; word order with be vs other verbs." },
+      { id: "37.7", title: "-ed / -ing endings", focus: "pronunciation", canDo: "I can pronounce past -ed and -ing naturally.", note: "/t/ /d/ /ɪd/ for -ed; clear -ing without a hard g." },
+      { id: "37.8", title: "Describe someone you know", focus: "function", canDo: "I can describe a person and our relationship.", fn: "describing people and relationships" },
+      { id: "37.9", title: "Small talk about routines", focus: "function", canDo: "I can make small talk about daily life.", fn: "small talk about routines and current activities" },
+      { id: "37.10", title: "Talk about your week", focus: "skill", canDo: "I can compare my usual week with this week.", note: "Mix present simple + continuous + past in one short talk." },
+      { id: "37.11", title: "Listening: an interview", focus: "skill", canDo: "I can follow someone describing their life.", note: "Gist + detail; catch tense contrasts." },
+      { id: "37.12", title: "Unit review", focus: "review", canDo: "I can talk about people, routines, and the recent past.", note: "Mixed check of Unit 1 (B1) goals." },
+    ],
+  },
+  {
+    id: 38,
+    slug: "lets-eat",
+    title: "Let's Eat!",
+    summary: "Describe food and meals, and compare them with comparatives and superlatives.",
+    lessons: [
+      { id: "38.1", title: "Describing food", focus: "vocabulary", canDo: "I can describe taste and texture.", vocab: ["spicy", "salty", "fresh", "crispy", "rich"] },
+      { id: "38.2", title: "Cooking & dishes", focus: "vocabulary", canDo: "I can talk about dishes and cooking.", vocab: ["grilled", "fried", "baked", "boiled", "raw"] },
+      { id: "38.3", title: "Count & noncount nouns", focus: "grammar", canDo: "I can tell countable from uncountable food.", grammar: "count vs noncount nouns", note: "an apple / some rice; a/an only with count nouns." },
+      { id: "38.4", title: "Quantifiers", focus: "grammar", canDo: "I can say how much/many with food.", grammar: "some, any, much, many, a lot of, a little, a few", note: "much/little + noncount; many/few + count; a lot of + both." },
+      { id: "38.5", title: "too much / not enough", focus: "grammar", canDo: "I can say there's too much or not enough.", grammar: "too much / too many / (not) enough", note: "too much salt, too many people, not enough time." },
+      { id: "38.6", title: "Comparatives", focus: "grammar", canDo: "I can compare two foods.", grammar: "comparative adjectives (-er / more)", note: "spicier than, more delicious than; as … as." },
+      { id: "38.7", title: "Superlatives", focus: "grammar", canDo: "I can say which is the best/worst.", grammar: "superlative adjectives (-est / most)", note: "the spiciest, the most popular; the best/worst." },
+      { id: "38.8", title: "Word stress in food words", focus: "pronunciation", canDo: "I can stress longer food words correctly.", note: "deLIcious, vegeTARian, inGREdients." },
+      { id: "38.9", title: "Ordering at a restaurant", focus: "function", canDo: "I can order a meal and ask about dishes.", fn: "ordering food and asking about dishes" },
+      { id: "38.10", title: "Make & respond to offers", focus: "function", canDo: "I can offer food and accept/decline politely.", fn: "offering food; accepting and declining" },
+      { id: "38.11", title: "Recommend a dish", focus: "skill", canDo: "I can recommend and compare dishes.", note: "Use comparatives/superlatives to recommend." },
+      { id: "38.12", title: "Unit review", focus: "review", canDo: "I can describe and compare food and meals.", note: "Mixed check of Unit 2 (B1) goals." },
+    ],
+  },
+  {
+    id: 39,
+    slug: "mysteries",
+    title: "Mysteries",
+    summary: "Speculate about puzzling situations and talk about life experiences.",
+    lessons: [
+      { id: "39.1", title: "Mystery vocabulary", focus: "vocabulary", canDo: "I can talk about strange events and clues.", vocab: ["clue", "evidence", "suspect", "solve", "disappear"] },
+      { id: "39.2", title: "Adjectives of certainty", focus: "vocabulary", canDo: "I can say how sure I am.", vocab: ["certain", "likely", "possible", "unlikely", "impossible"] },
+      { id: "39.3", title: "Modals of possibility", focus: "grammar", canDo: "I can guess using might, could, may.", grammar: "modals of present possibility (might / may / could)", note: "It might be true. They could be lost. Less than certain." },
+      { id: "39.4", title: "must / can't for deduction", focus: "grammar", canDo: "I can make confident deductions.", grammar: "must / can't for logical deduction", note: "He must be tired. That can't be right. (near-certainty)." },
+      { id: "39.5", title: "Present perfect: experience", focus: "grammar", canDo: "I can talk about life experiences.", grammar: "present perfect for experience (ever / never)", note: "Have you ever…? I've never seen… Unspecified past time." },
+      { id: "39.6", title: "Present perfect vs simple past", focus: "grammar", canDo: "I can choose perfect or past correctly.", grammar: "present perfect vs simple past", note: "I've been there (experience) vs I went last year (finished time)." },
+      { id: "39.7", title: "Contractions: 've / 's", focus: "pronunciation", canDo: "I can say I've, he's, they've naturally.", note: "Weak forms of have/has in connected speech." },
+      { id: "39.8", title: "Speculate about a picture", focus: "function", canDo: "I can speculate about what's happening.", fn: "speculating with modals about a scene" },
+      { id: "39.9", title: "Ask about experiences", focus: "function", canDo: "I can ask and answer about experiences.", fn: "asking about life experiences" },
+      { id: "39.10", title: "Solve a mystery", focus: "skill", canDo: "I can reason aloud to explain a mystery.", note: "Chain modals of deduction to a conclusion." },
+      { id: "39.11", title: "Listening: an unsolved case", focus: "skill", canDo: "I can follow a story and weigh possibilities.", note: "Catch certainty language and evidence." },
+      { id: "39.12", title: "Unit review", focus: "review", canDo: "I can speculate and talk about experiences.", note: "Mixed check of Unit 3 (B1) goals." },
+    ],
+  },
+  {
+    id: 40,
+    slug: "trends",
+    title: "Trends",
+    summary: "Talk about trends and make predictions about the future.",
+    lessons: [
+      { id: "40.1", title: "Trends & change", focus: "vocabulary", canDo: "I can describe how things are changing.", vocab: ["increase", "decrease", "popular", "fashion", "trend"] },
+      { id: "40.2", title: "Technology & society", focus: "vocabulary", canDo: "I can talk about modern habits.", vocab: ["online", "device", "social media", "screen time", "go viral"] },
+      { id: "40.3", title: "be going to", focus: "grammar", canDo: "I can talk about plans and evidence-based predictions.", grammar: "be going to (plans / predictions from evidence)", note: "Look at those clouds — it's going to rain." },
+      { id: "40.4", title: "will for predictions", focus: "grammar", canDo: "I can predict the future with will.", grammar: "will / won't for predictions and beliefs", note: "I think it'll change. People won't use cash." },
+      { id: "40.5", title: "will vs be going to", focus: "grammar", canDo: "I can choose will or going to.", grammar: "will vs be going to", note: "Decision now (I'll help) vs prior plan/evidence (going to)." },
+      { id: "40.6", title: "Future time clauses", focus: "grammar", canDo: "I can link future ideas with when/if.", grammar: "present simple after when/if for the future", note: "When it gets cheaper, I'll buy one. (NOT will get)." },
+      { id: "40.7", title: "Contraction 'll & weak 'to'", focus: "pronunciation", canDo: "I can say I'll, it'll, gonna naturally.", note: "'ll reductions; gonna in casual speech." },
+      { id: "40.8", title: "Make predictions", focus: "function", canDo: "I can predict and give reasons.", fn: "making predictions and giving reasons" },
+      { id: "40.9", title: "Agree & disagree", focus: "function", canDo: "I can agree or disagree about a trend.", fn: "agreeing and disagreeing politely" },
+      { id: "40.10", title: "Talk about a trend", focus: "skill", canDo: "I can describe a trend and predict its future.", note: "Combine change verbs + future forms." },
+      { id: "40.11", title: "Listening: future of food", focus: "skill", canDo: "I can follow predictions and opinions.", note: "Distinguish facts, plans, and guesses." },
+      { id: "40.12", title: "Unit review", focus: "review", canDo: "I can discuss trends and predict the future.", note: "Mixed check of Unit 4 (B1) goals." },
+    ],
+  },
+  {
+    id: 41,
+    slug: "my-neighborhood",
+    title: "My Neighborhood",
+    summary: "Describe places around you using relative clauses and quantity.",
+    lessons: [
+      { id: "41.1", title: "Places in town", focus: "vocabulary", canDo: "I can name places and facilities.", vocab: ["pharmacy", "bakery", "library", "crosswalk", "parking lot"] },
+      { id: "41.2", title: "Describing a neighborhood", focus: "vocabulary", canDo: "I can describe what an area is like.", vocab: ["crowded", "quiet", "convenient", "lively", "safe"] },
+      { id: "41.3", title: "Relative clauses: who/that", focus: "grammar", canDo: "I can describe people and things with who/that.", grammar: "subject relative clauses (who, that)", note: "a person who…, a place that… — defining clauses." },
+      { id: "41.4", title: "Relative clauses: which/where", focus: "grammar", canDo: "I can add where/which to describe places.", grammar: "relative clauses with which, where", note: "the café where we met; a shop which sells…" },
+      { id: "41.5", title: "There is / there are + quantity", focus: "grammar", canDo: "I can say what's in an area and how much.", grammar: "there is/are + quantifiers", note: "There are a few cafés; there isn't much traffic." },
+      { id: "41.6", title: "Prepositions of place", focus: "grammar", canDo: "I can say exactly where things are.", grammar: "prepositions/phrases of place", note: "across from, next to, on the corner of, between." },
+      { id: "41.7", title: "Sentence stress & rhythm", focus: "pronunciation", canDo: "I can stress content words in long sentences.", note: "Keep relative clauses fluent, not choppy." },
+      { id: "41.8", title: "Ask for & give directions", focus: "function", canDo: "I can ask for and give directions.", fn: "asking for and giving directions" },
+      { id: "41.9", title: "Describe where you live", focus: "function", canDo: "I can describe my neighborhood.", fn: "describing your area" },
+      { id: "41.10", title: "Recommend a place", focus: "skill", canDo: "I can recommend a place using relative clauses.", note: "It's a place that… / where you can…" },
+      { id: "41.11", title: "Listening: city vs town", focus: "skill", canDo: "I can compare two places I hear about.", note: "Catch descriptions and quantity." },
+      { id: "41.12", title: "Unit review", focus: "review", canDo: "I can describe places with relative clauses.", note: "Mixed check of Unit 5 (B1) goals." },
+    ],
+  },
+  {
+    id: 42,
+    slug: "goals",
+    title: "Goals",
+    summary: "Talk about plans, ambitions, and what you want and hope to do.",
+    lessons: [
+      { id: "42.1", title: "Goals & ambitions", focus: "vocabulary", canDo: "I can talk about goals.", vocab: ["achieve", "aim", "dream", "improve", "succeed"] },
+      { id: "42.2", title: "Life & career steps", focus: "vocabulary", canDo: "I can describe plans and milestones.", vocab: ["save money", "get a degree", "start a business", "get fit", "learn a skill"] },
+      { id: "42.3", title: "Future plans review", focus: "grammar", canDo: "I can talk about plans with going to / present continuous.", grammar: "be going to vs present continuous for plans", note: "going to (intention) vs present continuous (arranged plan)." },
+      { id: "42.4", title: "Verb + infinitive", focus: "grammar", canDo: "I can say what I want/hope/plan to do.", grammar: "verb + infinitive (want/hope/plan/decide to)", note: "I want to travel. I'm planning to study." },
+      { id: "42.5", title: "would like to", focus: "grammar", canDo: "I can talk about wishes politely.", grammar: "would like / 'd like to", note: "I'd like to learn… Softer than 'want'." },
+      { id: "42.6", title: "so that / in order to", focus: "grammar", canDo: "I can express purpose.", grammar: "purpose: to / in order to / so that", note: "I'm saving so that I can travel." },
+      { id: "42.7", title: "Stress in two-word verbs", focus: "pronunciation", canDo: "I can stress infinitive phrases naturally.", note: "want to → 'wanna'; hope to, plan to rhythm." },
+      { id: "42.8", title: "Talk about your goals", focus: "function", canDo: "I can share goals and reasons.", fn: "talking about goals and motivations" },
+      { id: "42.9", title: "Encourage someone", focus: "function", canDo: "I can encourage and give support.", fn: "encouraging and motivating someone" },
+      { id: "42.10", title: "Make a plan", focus: "skill", canDo: "I can lay out a plan with steps and purpose.", note: "Chain infinitives + purpose clauses." },
+      { id: "42.11", title: "Listening: a personal goal", focus: "skill", canDo: "I can follow someone describing a goal.", note: "Catch plans vs wishes vs purpose." },
+      { id: "42.12", title: "Unit review", focus: "review", canDo: "I can talk about plans, goals, and purpose.", note: "Mixed check of Unit 6 (B1) goals." },
+    ],
+  },
+  {
+    id: 43,
+    slug: "celebrations",
+    title: "Celebrations",
+    summary: "Talk about holidays and experiences using the present perfect.",
+    lessons: [
+      { id: "43.1", title: "Celebrations & holidays", focus: "vocabulary", canDo: "I can talk about festivals and customs.", vocab: ["celebrate", "anniversary", "tradition", "decorate", "fireworks"] },
+      { id: "43.2", title: "Party & event words", focus: "vocabulary", canDo: "I can describe parties and events.", vocab: ["invite", "guest", "host", "gift", "occasion"] },
+      { id: "43.3", title: "Present perfect: for / since", focus: "grammar", canDo: "I can say how long something has been true.", grammar: "present perfect with for and since", note: "I've known them for years / since 2019. Unfinished time." },
+      { id: "43.4", title: "already / yet / just", focus: "grammar", canDo: "I can use already, yet, and just.", grammar: "present perfect with already / yet / just", note: "I've just arrived. Have you eaten yet? I've already finished." },
+      { id: "43.5", title: "been vs gone", focus: "grammar", canDo: "I can tell 'has been' from 'has gone'.", grammar: "have been to vs have gone to", note: "She's been to Italy (and back) vs she's gone to Italy (still there)." },
+      { id: "43.6", title: "How long…? questions", focus: "grammar", canDo: "I can ask how long with the present perfect.", grammar: "How long have you…?", note: "Pair with for/since answers." },
+      { id: "43.7", title: "Linking in connected speech", focus: "pronunciation", canDo: "I can link words for fluent perfect forms.", note: "have you → 'have ya'; been_in, gone_on linking." },
+      { id: "43.8", title: "Invite & make plans", focus: "function", canDo: "I can invite someone and respond.", fn: "inviting and arranging to meet" },
+      { id: "43.9", title: "Describe a celebration", focus: "function", canDo: "I can describe a holiday I celebrate.", fn: "describing a celebration and traditions" },
+      { id: "43.10", title: "Talk about a memorable event", focus: "skill", canDo: "I can describe a recent special event.", note: "Mix present perfect + simple past for detail." },
+      { id: "43.11", title: "Listening: a festival", focus: "skill", canDo: "I can follow a description of a celebration.", note: "Catch time expressions with the perfect." },
+      { id: "43.12", title: "Unit review", focus: "review", canDo: "I can talk about celebrations and experiences.", note: "Mixed check of Unit 7 (B1) goals." },
+    ],
+  },
+  {
+    id: 44,
+    slug: "once-upon-a-time",
+    title: "Once Upon a Time",
+    summary: "Tell stories about the past using narrative tenses and used to.",
+    lessons: [
+      { id: "44.1", title: "Storytelling words", focus: "vocabulary", canDo: "I can use words to tell a story.", vocab: ["suddenly", "fortunately", "in the end", "at first", "later"] },
+      { id: "44.2", title: "Life events", focus: "vocabulary", canDo: "I can talk about important life events.", vocab: ["grow up", "move", "graduate", "fall in love", "retire"] },
+      { id: "44.3", title: "Past continuous", focus: "grammar", canDo: "I can describe an action in progress in the past.", grammar: "past continuous (was/were + -ing)", note: "I was cooking at 8 p.m. Background action." },
+      { id: "44.4", title: "Past simple vs continuous", focus: "grammar", canDo: "I can combine background and main events.", grammar: "past continuous vs simple past (when / while)", note: "While I was walking, I saw… interrupted action." },
+      { id: "44.5", title: "used to", focus: "grammar", canDo: "I can talk about past habits and states.", grammar: "used to + base verb", note: "I used to play… (not anymore). Affirmative, negative, questions." },
+      { id: "44.6", title: "Time linkers in narrative", focus: "grammar", canDo: "I can sequence a story clearly.", grammar: "sequencing: first, then, after that, finally", note: "Order events in a short story." },
+      { id: "44.7", title: "used to /ˈjuːstə/", focus: "pronunciation", canDo: "I can pronounce 'used to' naturally.", note: "Reduced 'useta'; was/were weak forms." },
+      { id: "44.8", title: "Tell a short story", focus: "function", canDo: "I can tell a simple personal story.", fn: "telling a story about the past" },
+      { id: "44.9", title: "React to a story", focus: "function", canDo: "I can react and ask follow-up questions.", fn: "reacting to and continuing a story" },
+      { id: "44.10", title: "Then and now", focus: "skill", canDo: "I can contrast how life used to be with now.", note: "used to + present simple contrast." },
+      { id: "44.11", title: "Listening: a childhood memory", focus: "skill", canDo: "I can follow a narrative in past tenses.", note: "Track sequence and interrupted actions." },
+      { id: "44.12", title: "Unit review", focus: "review", canDo: "I can tell a past story with narrative tenses.", note: "Mixed check of Unit 8 (B1) goals." },
+    ],
+  },
+  {
+    id: 45,
+    slug: "work",
+    title: "Work",
+    summary: "Talk about jobs and responsibilities using gerunds, infinitives, and modals.",
+    lessons: [
+      { id: "45.1", title: "Jobs & workplaces", focus: "vocabulary", canDo: "I can talk about jobs and where people work.", vocab: ["manager", "employee", "shift", "salary", "deadline"] },
+      { id: "45.2", title: "Job qualities & duties", focus: "vocabulary", canDo: "I can describe job duties and skills.", vocab: ["deal with", "be in charge of", "responsible", "organized", "hardworking"] },
+      { id: "45.3", title: "Verb + gerund", focus: "grammar", canDo: "I can use -ing after certain verbs.", grammar: "verb + gerund (enjoy, avoid, finish, mind)", note: "I enjoy working with people. I don't mind staying late." },
+      { id: "45.4", title: "Verb + infinitive", focus: "grammar", canDo: "I can use to-infinitive after certain verbs.", grammar: "verb + infinitive (need, decide, agree, manage)", note: "I need to finish this. We agreed to help." },
+      { id: "45.5", title: "Gerund vs infinitive", focus: "grammar", canDo: "I can choose -ing or to- correctly.", grammar: "gerund vs infinitive", note: "Common verb lists; like/start (both); stop doing vs stop to do (intro)." },
+      { id: "45.6", title: "Modals of obligation", focus: "grammar", canDo: "I can talk about rules and duties.", grammar: "have to / must / should / don't have to", note: "obligation, prohibition (mustn't) vs no obligation (don't have to)." },
+      { id: "45.7", title: "Stress for emphasis", focus: "pronunciation", canDo: "I can stress modals to show importance.", note: "You MUST… you should… contrastive stress." },
+      { id: "45.8", title: "A job interview", focus: "function", canDo: "I can answer common interview questions.", fn: "talking about yourself in an interview" },
+      { id: "45.9", title: "Talk about your job", focus: "function", canDo: "I can describe what I do and like about work.", fn: "describing a job and responsibilities" },
+      { id: "45.10", title: "Describe an ideal job", focus: "skill", canDo: "I can describe my ideal job and why.", note: "Combine gerunds/infinitives + reasons." },
+      { id: "45.11", title: "Listening: a workday", focus: "skill", canDo: "I can follow someone describe their job.", note: "Catch duties, obligations, preferences." },
+      { id: "45.12", title: "Unit review", focus: "review", canDo: "I can talk about work with gerunds, infinitives, and modals.", note: "Mixed check of Unit 9 (B1) goals." },
+    ],
+  },
+  {
+    id: 46,
+    slug: "stay-in-touch",
+    title: "Stay in Touch",
+    summary: "Communicate, report what others said, and handle messages.",
+    lessons: [
+      { id: "46.1", title: "Communication verbs", focus: "vocabulary", canDo: "I can talk about ways to keep in touch.", vocab: ["text", "call back", "reply", "keep in touch", "get in touch"] },
+      { id: "46.2", title: "Phones & messages", focus: "vocabulary", canDo: "I can handle phone and message situations.", vocab: ["voicemail", "missed call", "hang up", "leave a message", "on mute"] },
+      { id: "46.3", title: "Reported statements", focus: "grammar", canDo: "I can report what someone said.", grammar: "reported speech: statements (say / tell)", note: "He said (that) he was busy. Basic backshift present→past." },
+      { id: "46.4", title: "Reported questions", focus: "grammar", canDo: "I can report a question.", grammar: "reported questions (asked if / wh-)", note: "She asked if I was free. He asked where I lived (statement word order)." },
+      { id: "46.5", title: "say vs tell", focus: "grammar", canDo: "I can use say and tell correctly.", grammar: "say vs tell", note: "tell + person (tell me); say (no person): say something to me." },
+      { id: "46.6", title: "will for offers & promises", focus: "grammar", canDo: "I can make instant offers and promises.", grammar: "will for offers/promises/decisions", note: "I'll call you back. I'll help. Decision at the moment." },
+      { id: "46.7", title: "Intonation: polite requests", focus: "pronunciation", canDo: "I can sound polite on the phone.", note: "Rising/wide intonation for politeness." },
+      { id: "46.8", title: "Make a phone call", focus: "function", canDo: "I can start, manage, and end a call.", fn: "telephoning: opening, messages, closing" },
+      { id: "46.9", title: "Pass on a message", focus: "function", canDo: "I can relay what someone told me.", fn: "relaying messages with reported speech" },
+      { id: "46.10", title: "Handle a misunderstanding", focus: "skill", canDo: "I can clarify and confirm information.", note: "Check, repeat, and report back." },
+      { id: "46.11", title: "Listening: a voicemail", focus: "skill", canDo: "I can note key info from a message.", note: "Catch who/what/when to report." },
+      { id: "46.12", title: "Unit review", focus: "review", canDo: "I can communicate and report what others said.", note: "Mixed check of Unit 10 (B1) goals." },
+    ],
+  },
+  {
+    id: 47,
+    slug: "technology",
+    title: "Technology",
+    summary: "Discuss technology and how things are done, using the passive.",
+    lessons: [
+      { id: "47.1", title: "Technology & devices", focus: "vocabulary", canDo: "I can talk about devices and features.", vocab: ["app", "update", "charge", "back up", "log in"] },
+      { id: "47.2", title: "Using technology", focus: "vocabulary", canDo: "I can describe how I use technology.", vocab: ["download", "install", "stream", "share", "set up"] },
+      { id: "47.3", title: "Passive: present simple", focus: "grammar", canDo: "I can say how things are done now.", grammar: "present simple passive (is/are + past participle)", note: "Phones are made in… English is spoken here. Focus on the action/result." },
+      { id: "47.4", title: "Passive: past simple", focus: "grammar", canDo: "I can say how things were done.", grammar: "past simple passive (was/were + past participle)", note: "It was invented in 1876. by + agent when relevant." },
+      { id: "47.5", title: "Active vs passive", focus: "grammar", canDo: "I can choose active or passive appropriately.", grammar: "active vs passive (when to use passive)", note: "Use passive when the doer is unknown/unimportant." },
+      { id: "47.6", title: "used to vs be used to", focus: "grammar", canDo: "I can tell past habit from being accustomed.", grammar: "used to vs be/get used to", note: "I used to (past habit) vs I'm used to (accustomed) + noun/-ing." },
+      { id: "47.7", title: "Past participle endings", focus: "pronunciation", canDo: "I can pronounce participles in the passive.", note: "made, spoken, written, taken — clear endings." },
+      { id: "47.8", title: "Explain how something works", focus: "function", canDo: "I can explain a process.", fn: "explaining how something is made/done" },
+      { id: "47.9", title: "Give & follow instructions", focus: "function", canDo: "I can give tech instructions.", fn: "giving step-by-step instructions" },
+      { id: "47.10", title: "Describe a useful invention", focus: "skill", canDo: "I can describe an invention using the passive.", note: "It's used to… It was invented by…" },
+      { id: "47.11", title: "Listening: a product review", focus: "skill", canDo: "I can follow a description of a product.", note: "Catch passive descriptions and features." },
+      { id: "47.12", title: "Unit review", focus: "review", canDo: "I can discuss technology using the passive.", note: "Mixed check of Unit 11 (B1) goals." },
+    ],
+  },
+  {
+    id: 48,
+    slug: "travel",
+    title: "Travel",
+    summary: "Plan trips, handle travel situations, and talk about possible outcomes.",
+    lessons: [
+      { id: "48.1", title: "Travel vocabulary", focus: "vocabulary", canDo: "I can talk about trips and transport.", vocab: ["book", "luggage", "boarding pass", "delay", "destination"] },
+      { id: "48.2", title: "At the airport / hotel", focus: "vocabulary", canDo: "I can handle airport and hotel words.", vocab: ["check in", "gate", "reservation", "passport", "departure"] },
+      { id: "48.3", title: "First conditional", focus: "grammar", canDo: "I can talk about likely future results.", grammar: "first conditional (if + present, will)", note: "If we miss the train, we'll take a taxi. Real future possibility." },
+      { id: "48.4", title: "when / unless / as soon as", focus: "grammar", canDo: "I can link conditions and time.", grammar: "first conditional with when/unless/as soon as", note: "Unless it rains, we'll walk. As soon as I arrive, I'll text." },
+      { id: "48.5", title: "Modals for travel", focus: "grammar", canDo: "I can give advice and talk necessity for trips.", grammar: "should / ought to / have to / had better", note: "You should book early. You have to show your passport." },
+      { id: "48.6", title: "Indirect questions", focus: "grammar", canDo: "I can ask politely for travel info.", grammar: "indirect questions (Could you tell me…?)", note: "Could you tell me where the gate is? (statement order)." },
+      { id: "48.7", title: "Polite intonation for requests", focus: "pronunciation", canDo: "I can ask travel questions politely.", note: "Wide, rising intonation; soft openings." },
+      { id: "48.8", title: "Book & ask about a trip", focus: "function", canDo: "I can make a booking and ask questions.", fn: "booking travel and asking for information" },
+      { id: "48.9", title: "Deal with a travel problem", focus: "function", canDo: "I can handle a delay or problem politely.", fn: "solving a travel problem" },
+      { id: "48.10", title: "Plan a trip", focus: "skill", canDo: "I can plan a trip and talk through what-ifs.", note: "Combine first conditional + travel modals." },
+      { id: "48.11", title: "Listening: travel announcements", focus: "skill", canDo: "I can catch key info in announcements.", note: "Times, gates, changes, instructions." },
+      { id: "48.12", title: "Course review", focus: "review", canDo: "I can use everything from the B1 course in conversation.", note: "Wrap-up: mix goals from across all B1 units." },
+    ],
+  },
+];
+
 /** Tag base topics with a course (level + target language), offsetting topic ids
  *  so each course stays unique and renumbering lesson ids to match. */
 function course(
@@ -832,9 +1084,10 @@ export const CURRICULUM: Topic[] = [
   ...course(A2_TOPICS, "A2", "English", 0), // topics 13–24
   // Portuguese (Brazilian) A1 — a real Portuguese scope & sequence (topics 25–36).
   ...course(PT_A1_TOPICS, "A1", "Portuguese", 24),
+  ...course(B1_TOPICS, "B1", "English", 0), // topics 37–48
 ];
 
-export const LEVELS: CEFRLevel[] = ["A1", "A2"];
+export const LEVELS: CEFRLevel[] = ["A1", "A2", "B1"];
 /** Target languages offered, in display order. */
 export const COURSES: TargetLanguage[] = ["English", "Portuguese"];
 

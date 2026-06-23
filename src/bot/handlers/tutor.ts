@@ -21,6 +21,7 @@ import {
 import {
   getTutorReply,
   describeImageTurn,
+  extractLearnedWords,
   nextMastery,
   type TutorTurnResult,
 } from "../../tutor/engine.js";
@@ -259,12 +260,60 @@ export async function learnCommand(ctx: BotContext): Promise<void> {
     return;
   }
   await ensureProfile(ctx);
-  await showTopics(ctx);
+  await showLevelPicker(ctx);
+}
+
+const LEVEL_LABEL: Record<CEFRLevel, { ru: string; en: string }> = {
+  A1: { ru: "Начальный", en: "Beginner" },
+  A2: { ru: "Элементарный", en: "Elementary" },
+  B1: { ru: "Средний", en: "Intermediate" },
+};
+
+/** First self-study screen: choose a level. Topics/lessons appear only after this. */
+export async function showLevelPicker(
+  ctx: BotContext,
+  target: TargetLanguage = "English",
+): Promise<void> {
+  ctx.session.flow = undefined;
+  const isAdmin = ctx.session.role === "teacher";
+  // Portuguese is offered to teachers/admin only; students always get English.
+  if (target === "Portuguese" && !isAdmin) target = "English";
+  const levels = levelsForCourse(target);
+  const code = TARGET_CODE[target];
+
+  const kb = new InlineKeyboard();
+  for (const lv of levels) {
+    const label = LEVEL_LABEL[lv];
+    kb.text(`${lv} — ${tr(ctx, label.ru, label.en)}`, `lrn:c:${code}:${lv}`).row();
+  }
+  // Teachers can switch the target language; the picker then reloads its levels.
+  if (isAdmin) {
+    kb.text(`${target === "English" ? "🔵 " : ""}🇬🇧 English`, "lrn:lang:en")
+      .text(`${target === "Portuguese" ? "🔵 " : ""}🇵🇹 Português`, "lrn:lang:pt")
+      .row();
+  }
+  kb.text(tr(ctx, "🏠 Меню", "🏠 Menu"), "menu");
+
+  const name = targetName(ctx, target);
+  await ctx.reply(
+    tr(
+      ctx,
+      `📚 <b>${name} — выбери уровень</b>\nС какого уровня начнём? Потом откроются темы и уроки.`,
+      `📚 <b>${name} — choose your level</b>\nWhere shall we start? Topics and lessons open after you pick.`,
+    ),
+    { parse_mode: "HTML", reply_markup: kb },
+  );
 }
 
 /** Callback entry: show a course by its short code (en/pt) + level. */
 export async function showCourse(ctx: BotContext, code: string, level: string): Promise<void> {
-  await showTopics(ctx, codeToTarget(code), level === "A2" ? "A2" : "A1");
+  const lv: CEFRLevel = level === "B1" ? "B1" : level === "A2" ? "A2" : "A1";
+  await showTopics(ctx, codeToTarget(code), lv);
+}
+
+/** Teacher switches the target language on the level picker. */
+export async function showLevelPickerFor(ctx: BotContext, code: string): Promise<void> {
+  await showLevelPicker(ctx, codeToTarget(code));
 }
 
 export async function showTopics(
@@ -297,17 +346,9 @@ export async function showTopics(
     const tick = done >= topic.lessons.length ? "✅ " : "";
     kb.text(`${tick}${i + 1}. ${topic.title} (${done}/${topic.lessons.length})`, `lrn:t:${topic.id}`).row();
   });
-  // Language switcher — teachers can switch between English and Portuguese.
-  if (isAdmin) {
-    kb.text(`${target === "English" ? "🔵 " : ""}🇬🇧 English`, "lrn:c:en:A1")
-      .text(`${target === "Portuguese" ? "🔵 " : ""}🇵🇹 Português`, "lrn:c:pt:A1")
-      .row();
-  }
-  // Level switcher (only the levels that exist for this course).
-  if (levels.length > 1) {
-    for (const lv of levels) kb.text(`${lv === level ? "🔵 " : ""}${lv}`, `lrn:c:${code}:${lv}`);
-    kb.row();
-  }
+  // Back to the level picker (the first self-study screen) — language/level are
+  // chosen there now, so the topic list stays focused on this one level.
+  kb.text(tr(ctx, "⬅️ Уровни", "⬅️ Levels"), `lrn:levels:${code}`).row();
 
   // Wallet line and buy button: hidden for admin (teacher).
   let walletLine = "";
@@ -530,15 +571,15 @@ async function meterTurn(
   ctx: BotContext,
   flow: TutorFlow,
   claudeUsd: number,
-  spoke: boolean,
+  ttsCount: number,
   imageSent: boolean,
 ): Promise<void> {
   const cost =
-    claudeUsd + (spoke ? MEDIA_COST_USD.tts : 0) + (imageSent ? MEDIA_COST_USD.image : 0);
+    claudeUsd + ttsCount * MEDIA_COST_USD.tts + (imageSent ? MEDIA_COST_USD.image : 0);
   await chargeUsd(ctx, flow, cost, "turn");
   if (ctx.session.role === "teacher") {
     const parts = [`Claude $${claudeUsd.toFixed(4)}`];
-    if (spoke) parts.push(`TTS $${MEDIA_COST_USD.tts.toFixed(4)}`);
+    if (ttsCount > 0) parts.push(`TTS ×${ttsCount} $${(ttsCount * MEDIA_COST_USD.tts).toFixed(4)}`);
     if (imageSent) parts.push(`img $${MEDIA_COST_USD.image.toFixed(4)}`);
     await ctx.reply(
       `💸 $${cost.toFixed(4)} (${parts.join(" + ")}) | lesson total $${flow.lessonCostUsd.toFixed(4)}`,
@@ -562,22 +603,78 @@ async function gate(ctx: BotContext, flow: TutorFlow): Promise<boolean> {
   return false;
 }
 
-/** Speak text as a voice note (the primary channel). Returns true if sent. */
-async function speak(ctx: BotContext, text: string): Promise<boolean> {
-  if (!text.trim()) return false;
-  const stop = keepThinking(ctx, "record_voice");
-  try {
-    const ogg = await synthesizeSpeech(text);
-    if (ogg) {
-      await ctx.replyWithVoice(new InputFile(ogg, "tutor.ogg"));
-      return true;
+/** Longest text we send to TTS in one call. A whole grammar explanation (the first
+ *  lesson turn) can be thousands of characters; sending that as ONE request makes
+ *  Gemini TTS slow and flaky, and when it fails across every fallback model the
+ *  student waited minutes only to get a wall of text. We speak in sentence-sized
+ *  chunks instead: each call is fast and reliable, and the first voice note lands
+ *  in a few seconds. */
+const MAX_TTS_CHARS = 700;
+
+/** Split text into chunks of ≤ maxLen, breaking on sentence boundaries where
+ *  possible (falling back to whitespace, then a hard cut) so speech sounds natural. */
+function chunkForSpeech(text: string, maxLen: number): string[] {
+  const clean = text.trim();
+  if (clean.length <= maxLen) return clean ? [clean] : [];
+  // Split into sentences (keep the punctuation), then greedily pack into chunks.
+  const sentences = clean.match(/[^.!?。！？\n]+[.!?。！？]*\s*|\n+/g) ?? [clean];
+  const chunks: string[] = [];
+  let cur = "";
+  const push = () => {
+    if (cur.trim()) chunks.push(cur.trim());
+    cur = "";
+  };
+  for (let piece of sentences) {
+    // A single sentence longer than maxLen: hard-split it on spaces.
+    while (piece.length > maxLen) {
+      const slice = piece.slice(0, maxLen);
+      const cut = slice.lastIndexOf(" ");
+      const head = cut > maxLen * 0.5 ? slice.slice(0, cut) : slice;
+      if (cur) push();
+      chunks.push(head.trim());
+      piece = piece.slice(head.length);
     }
-  } catch (err) {
-    console.error("tutor voice failed:", err);
+    if ((cur + piece).length > maxLen) push();
+    cur += piece;
+  }
+  push();
+  return chunks;
+}
+
+/**
+ * Speak text as voice notes (the primary channel). Long text is delivered as
+ * several voice notes, sent as each is ready so the first one lands quickly. If a
+ * chunk can't be synthesized, the rest is shown as text rather than stalling.
+ * Returns the number of voice notes sent (0 = nothing spoken; caller shows text).
+ */
+async function speak(ctx: BotContext, text: string): Promise<number> {
+  if (!text.trim()) return 0;
+  const chunks = chunkForSpeech(text, MAX_TTS_CHARS);
+  const stop = keepThinking(ctx, "record_voice");
+  let sent = 0;
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      let ogg: Uint8Array | null = null;
+      try {
+        ogg = await synthesizeSpeech(chunks[i]!);
+      } catch (err) {
+        console.error("tutor voice failed:", err);
+      }
+      if (ogg) {
+        await ctx.replyWithVoice(new InputFile(ogg, "tutor.ogg"));
+        sent += 1;
+      } else {
+        // This chunk failed — show it and everything after it as text, then stop
+        // (don't keep hammering TTS for the remaining chunks).
+        const rest = chunks.slice(i).join(" ");
+        await replyRich(ctx, rest);
+        break;
+      }
+    }
   } finally {
     stop();
   }
-  return false;
+  return sent;
 }
 
 /** Render a tutor turn: speak it (primary), show text only when needed, set up next.
@@ -632,11 +729,12 @@ async function renderReply(
     : reply.image
       ? await sendImage(ctx, reply.image)
       : false;
-  const spoke = await speak(ctx, reply.say);
-  if (!spoke) await replyRich(ctx, reply.say);
+  // speak() delivers everything: voice notes for what it can synthesize, and a
+  // text fallback for anything it can't — so we never double-post or stall here.
+  const voiceNotes = await speak(ctx, reply.say);
 
   // Meter the real cost of everything we just produced (Claude + voice + picture).
-  await meterTurn(ctx, flow, result.costUsd, spoke, imgSent);
+  await meterTurn(ctx, flow, result.costUsd, voiceNotes, imgSent);
 
   // Lesson finished.
   if (reply.lessonComplete) {
@@ -662,12 +760,21 @@ async function renderReply(
       const profit = flow.free ? -flow.lessonCostUsd : netPerLesson - flow.lessonCostUsd;
       const studentName = ctx.session.name ?? ctx.from?.first_name ?? "Unknown";
       const label = flow.free ? "free/trial" : `net $${netPerLesson.toFixed(2)}`;
+      // Words the student practised this lesson (best-effort; owner-only insight).
+      const lessonObj = getLesson(flow.topicId, flow.lessonId);
+      const learned = lessonObj
+        ? await extractLearnedWords(lessonContext(flow.topicId, lessonObj), flow.history).catch(
+            () => [] as string[],
+          )
+        : [];
+      const wordsLine = learned.length ? `\n📖 Words learned: ${learned.join(", ")}` : "";
       await notifyAdmins(ctx.api, {
         title: "💰 Lesson complete",
         ctx,
         details:
           `Student: ${studentName}\n` +
-          `Cost: $${flow.lessonCostUsd.toFixed(4)} | ${label} | P&L: ${profit >= 0 ? "+" : ""}$${profit.toFixed(4)}`,
+          `Cost: $${flow.lessonCostUsd.toFixed(4)} | ${label} | P&L: ${profit >= 0 ? "+" : ""}$${profit.toFixed(4)}` +
+          wordsLine,
       }).catch(() => {});
     }
     return true;
@@ -1034,10 +1141,8 @@ export async function showBuyMenu(
 
   const blurb = tr(
     ctx,
-    "🎧 Живой ИИ-репетитор: говорит голосом, показывает картинки и подстраивается под тебя. " +
-      "Звёзды списываются только за реально проведённое время — остаток не сгорает.",
-    "🎧 A live AI tutor: speaks to you, shows pictures and adapts to you. Stars are spent only " +
-      "for the time you actually use — the rest never expires.",
+    "🎧 Живой ИИ-репетитор: говорит голосом, показывает картинки и подстраивается под тебя.",
+    "🎧 A live AI tutor: speaks to you, shows pictures and adapts to you.",
   );
 
   // Single lesson is the baseline; bigger packs are cheaper per lesson.

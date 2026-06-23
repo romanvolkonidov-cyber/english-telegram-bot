@@ -7,6 +7,15 @@ import type { TutorTurn, PendingQuiz } from "../tutor/types.js";
 export type Flow =
   | { kind: "login"; step: "username" | "password"; username?: string }
   | {
+      // Admin grants bonus lessons or game rounds to a chosen student.
+      kind: "grant";
+      target: "lessons" | "rounds";
+      studentId: string;
+      studentName: string;
+      telegramUserId: number;
+      chatId: number;
+    }
+  | {
       kind: "quiz";
       assignmentId: string;
       topicName: string;
@@ -17,6 +26,21 @@ export type Flow =
       answers: SubmittedAnswer[];
       /** topicId -> base sentence, for fill-in-the-blank rendering. */
       sentences: Record<string, string>;
+    }
+  | {
+      kind: "wordgame";
+      fromLevel: string;
+      toLevel: string;
+      score: number;
+      total: number;
+      usedWords: string[];
+      currentOptions?: string[];
+      correctIndex?: number;
+      currentExplain?: string;
+      currentWord?: string;
+      roundCostUsd?: number;
+      /** True while a round is being generated — blocks double-tap re-entry. */
+      busy?: boolean;
     }
   | {
       kind: "tutor";
