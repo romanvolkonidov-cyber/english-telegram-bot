@@ -47,6 +47,9 @@ export const config = {
   /** Claude model used to teach (direct Anthropic API). */
   claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
 
+  /** Cheaper/faster model for simple checks (e.g. the word-game verification pass). */
+  claudeFastModel: (process.env.CLAUDE_FAST_MODEL || "claude-haiku-4-5-20251001").trim(),
+
   /**
    * Alternative to the direct Anthropic API: Amazon Bedrock ("Claude on AWS").
    * A Bedrock API key is a single bearer token (not an sk-ant- key), used against

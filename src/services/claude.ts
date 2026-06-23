@@ -29,6 +29,10 @@ export interface ClaudeCall {
   cacheSystem?: boolean;
   /** Assistant turn prefill: Claude MUST continue from this string (e.g. "{" forces JSON). */
   prefill?: string;
+  /** Override the model for this call (e.g. a cheaper/faster Haiku for a simple
+   *  check). Applies to the first-party backends (Anthropic, Claude-on-AWS);
+   *  Bedrock keeps its configured model id. Defaults to config.claudeModel. */
+  model?: string;
 }
 
 export interface ClaudeResult {
@@ -188,7 +192,7 @@ async function callAnthropic(opts: ClaudeCall): Promise<ClaudeResult | null> {
         "content-type": "application/json",
       },
       {
-        model: config.claudeModel,
+        model: opts.model ?? config.claudeModel,
         max_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0.6,
         system,
@@ -214,7 +218,7 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<ClaudeResult | null> {
       "content-type": "application/json",
     },
     {
-      model: config.claudeModel, // bare first-party id, e.g. claude-opus-4-8
+      model: opts.model ?? config.claudeModel, // bare first-party id, e.g. claude-opus-4-8
       max_tokens: opts.maxTokens ?? 1024,
       // temperature omitted — claude-opus-4-8 and later deprecate this parameter
       system,

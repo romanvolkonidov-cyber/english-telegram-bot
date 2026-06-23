@@ -88,6 +88,8 @@ export function teacherMenuKeyboard(lang: Language): InlineKeyboard {
   return new InlineKeyboard()
     .text(t(lang, "teacher_menu_learn"), "lrn:topics")
     .row()
+    .text(t(lang, "menu_wordgame"), "wg:levels")
+    .row()
     .text(t(lang, "teacher_menu_students"), "t:students")
     .row()
     .text(t(lang, "menu_language"), "lang:menu")

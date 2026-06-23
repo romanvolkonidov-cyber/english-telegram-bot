@@ -23,7 +23,7 @@ import {
   type GameMilestone,
 } from "../../tutor/wallet.js";
 import { notifyAdmins } from "../../services/adminNotify.js";
-import { config } from "../../config.js";
+import { config, hasGemini } from "../../config.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -37,6 +37,18 @@ function isAdmin(ctx: BotContext): boolean {
 
 function tr(ctx: BotContext, ru: string, en: string): string {
   return ctx.session.lang === "en" ? en : ru;
+}
+
+/** Keep a chat action ("typing" / "record_voice") visible across a long task —
+ *  Telegram actions expire after ~5 s, so a single send vanishes while we generate
+ *  and the player thinks the bot froze. Re-sends every 4 s; returns a stop fn. */
+function keepThinking(
+  ctx: BotContext,
+  action: Parameters<typeof ctx.replyWithChatAction>[0] = "typing",
+): () => void {
+  ctx.replyWithChatAction(action).catch(() => {});
+  const id = setInterval(() => ctx.replyWithChatAction(action).catch(() => {}), 4000);
+  return () => clearInterval(id);
 }
 
 // ── entry: /wordgame command or "wg" menu button ──────────────────────────────
@@ -105,6 +117,10 @@ async function runRound(ctx: BotContext): Promise<void> {
   // Double-tap guard: ignore a second "Next word" while one is still generating.
   if (flow.busy) return;
   flow.busy = true;
+  // Keep a "typing" indicator alive through generation+verification+image so the
+  // player never sees the bot go silent. Stopped once the question is on screen;
+  // the outer finally guarantees cleanup on any early return.
+  let stopThinking = () => {};
   try {
     // Is a round available? (peek only — we charge AFTER a successful round, so a
     // failed generation never costs the student a round, and "Try again" is free.)
@@ -114,7 +130,7 @@ async function runRound(ctx: BotContext): Promise<void> {
       return;
     }
 
-    await ctx.replyWithChatAction("typing");
+    stopThinking = keepThinking(ctx, "typing");
 
     const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
     const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
@@ -146,16 +162,13 @@ async function runRound(ctx: BotContext): Promise<void> {
       if (freshImage) imageCostUsd = MEDIA_COST_USD.image;
     }
 
-    // A short voice note that reads the word and each option aloud, so a student
-    // who wants to LISTEN hears how everything is pronounced. One TTS call per
-    // round (flat ~$0.01, pure audio — no extra LLM call). Best-effort: if speech
-    // isn't available we just skip it and pay nothing.
     const letter = (i: number) => String.fromCharCode(65 + i);
-    const voiceScript =
-      `${round.word}. Which word means the same as ${round.word}? ` +
-      round.options.map((o, i) => `${letter(i)}: ${o}.`).join(" ");
-    const voiceOgg = await synthesizeSpeech(voiceScript).catch(() => null);
-    const voiceCostUsd = voiceOgg ? MEDIA_COST_USD.tts : 0;
+
+    // We send a short pronunciation voice note AFTER the question (below) so the
+    // question appears immediately instead of waiting on TTS. Book its cost now
+    // (one flat ~$0.01 TTS call) when speech is available — pure audio, no LLM.
+    const willSpeak = hasGemini;
+    const voiceCostUsd = willSpeak ? MEDIA_COST_USD.tts : 0;
 
     const roundCostUsd = round.costUsd + imageCostUsd + voiceCostUsd;
 
@@ -222,16 +235,29 @@ async function runRound(ctx: BotContext): Promise<void> {
       }
     }
     if (!photoSent) await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
+    stopThinking(); // question is on screen — drop the "typing" indicator
 
-    // The pronunciation voice note, after the question (the buttons are already up).
-    if (voiceOgg) {
+    // Now synthesize and send the pronunciation voice note — the question is
+    // already visible and answerable, so TTS latency no longer blocks the round.
+    // Show a "recording audio" indicator so the incoming voice is expected.
+    if (willSpeak) {
+      const stopRecording = keepThinking(ctx, "record_voice");
       try {
-        await ctx.replyWithVoice(new InputFile(voiceOgg, "wordgame.ogg"));
+        const voiceScript =
+          `${round.word}. Which word means the same as ${round.word}? ` +
+          round.options.map((o, i) => `${letter(i)}: ${o}.`).join(" ");
+        const voiceOgg = await synthesizeSpeech(voiceScript).catch(() => null);
+        if (voiceOgg) {
+          await ctx.replyWithVoice(new InputFile(voiceOgg, "wordgame.ogg"));
+        }
       } catch {
         /* non-fatal — the round is fully playable without the audio */
+      } finally {
+        stopRecording();
       }
     }
   } finally {
+    stopThinking(); // safety: clears the interval on any early return above
     flow.busy = false;
   }
 }

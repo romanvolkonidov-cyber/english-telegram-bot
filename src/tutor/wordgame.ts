@@ -1,4 +1,5 @@
 import { callClaude } from "../services/claude.js";
+import { config } from "../config.js";
 
 /** CEFR level pairs available in the game. */
 export const GAME_LEVELS: { from: string; to: string; label: string }[] = [
@@ -26,11 +27,80 @@ export interface GameRound {
 const SYSTEM = `You are an English vocabulary trainer generating word game rounds. Return ONLY valid JSON — no markdown, no code fences.`;
 
 /**
- * Ask Claude to pick a word at `fromLevel`, then produce a correct synonym at
- * `toLevel` plus three plausible-but-wrong distractors. An image prompt is
- * generated so we can show a picture of the main word.
+ * Generate a round, then verify it with a cheap fast model. The verifier checks
+ * the two failure modes that actually hurt the game: (1) the "correct" option must
+ * really be a synonym of the word, and (2) none of the distractors may ALSO be a
+ * synonym (a question must have exactly one right answer). If a round fails, we
+ * regenerate once. Verification is fail-open: if the verifier is unreachable we
+ * keep the round rather than dead-end the player. All call costs are accumulated.
  */
 export async function generateRound(
+  fromLevel: string,
+  toLevel: string,
+  nativeLanguage: string,
+  usedWords: string[],
+): Promise<GameRound | null> {
+  let last: GameRound | null = null;
+  let verifyCost = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const round = await generateRoundOnce(fromLevel, toLevel, nativeLanguage, usedWords);
+    if (!round) continue;
+    last = round;
+    const correct = round.options[round.correctIndex] ?? "";
+    const distractors = round.options.filter((_, i) => i !== round.correctIndex);
+    const v = await verifyRound(round.word, correct, distractors);
+    verifyCost += v.costUsd;
+    if (v.valid) return { ...round, costUsd: round.costUsd + verifyCost };
+  }
+  // No round passed verification in 2 tries — show the last one anyway (better than
+  // a dead-end; the generation prompt already aims for correctness), cost included.
+  return last ? { ...last, costUsd: last.costUsd + verifyCost } : null;
+}
+
+/**
+ * Cheap second-opinion check on a generated round. Returns valid=false only when
+ * the verifier is confident the correct answer is wrong OR another option is also
+ * a synonym. Fail-open (valid=true) on any outage/parse error.
+ */
+async function verifyRound(
+  word: string,
+  correct: string,
+  distractors: string[],
+): Promise<{ valid: boolean; costUsd: number }> {
+  const prompt =
+    `Check a synonym question for an English learner game.\n` +
+    `WORD: "${word}"\n` +
+    `Marked correct answer: "${correct}"\n` +
+    `Other options (these should NOT be synonyms of WORD): ${distractors.map((d) => `"${d}"`).join(", ")}\n\n` +
+    `A synonym can replace WORD in a sentence with essentially the same meaning. Be strict but fair.\n` +
+    `Return ONLY this JSON: {"correctIsSynonym": true|false, "otherSynonyms": ["any of the other options that are ALSO a synonym of WORD"]}`;
+  const result = await callClaude({
+    system: "You are a precise English lexicographer. Return ONLY valid JSON, no prose.",
+    messages: [{ role: "user", content: prompt }],
+    maxTokens: 150,
+    temperature: 0,
+    prefill: "{",
+    model: config.claudeFastModel,
+  });
+  if (!result) return { valid: true, costUsd: 0 }; // verifier down → don't block play
+  try {
+    const raw = result.text.trimStart();
+    const text = raw.startsWith("{") ? raw : "{" + raw;
+    const end = text.lastIndexOf("}");
+    const obj = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as {
+      correctIsSynonym?: boolean;
+      otherSynonyms?: unknown[];
+    };
+    const others = Array.isArray(obj.otherSynonyms) ? obj.otherSynonyms : [];
+    const valid = obj.correctIsSynonym === true && others.length === 0;
+    return { valid, costUsd: result.costUsd };
+  } catch {
+    return { valid: true, costUsd: result.costUsd }; // unparseable → keep the round
+  }
+}
+
+/** Generate a single candidate round (one Claude call). */
+async function generateRoundOnce(
   fromLevel: string,
   toLevel: string,
   nativeLanguage: string,
