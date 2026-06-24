@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Caption,
@@ -36,9 +36,17 @@ export function App() {
   const [answer, setAnswer] = useState<AnswerResp | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [usedWords, setUsedWords] = useState<string[]>([]);
+  const [loadingRound, setLoadingRound] = useState(false);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [streak, setStreak] = useState(0);
+
+  // Words served this session (avoid-list), kept in a ref so prefetch reads the
+  // latest synchronously. The server ALSO persists recent words per player.
+  const usedWords = useRef<string[]>([]);
+  // The next round, generated in the background while the player reads the answer,
+  // so "Next word" is instant. `out` means the prefetch hit the no-rounds-left wall.
+  const nextRef = useRef<{ round?: RoundResp; out?: boolean } | null>(null);
+  const prefetchPromise = useRef<Promise<void> | null>(null);
 
   const ru = state?.nativeLanguage === "Russian";
   const T = (rus: string, en: string) => (ru ? rus : en);
@@ -65,13 +73,13 @@ export function App() {
 
   const fetchRound = useCallback(
     async (lv: Level, used: string[]) => {
-      setBusy(true);
+      setLoadingRound(true);
       setAnswer(null);
       setPicked(null);
       try {
         const r = await api.round(lv.from, lv.to, used);
         setRound(r);
-        setUsedWords((w) => [...w, r.word].slice(-40));
+        usedWords.current = [...usedWords.current, r.word].slice(-40);
         setScreen("play");
       } catch (e) {
         if (e instanceof ApiError && e.status === 402) {
@@ -81,7 +89,7 @@ export function App() {
           setScreen("error");
         }
       } finally {
-        setBusy(false);
+        setLoadingRound(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,10 +99,29 @@ export function App() {
   const startLevel = (lv: Level) => {
     haptic.tap();
     setLevel(lv);
-    setUsedWords([]);
+    usedWords.current = [];
+    nextRef.current = null;
+    prefetchPromise.current = null;
     setScore({ correct: 0, total: 0 });
     setStreak(0);
     void fetchRound(lv, []);
+  };
+
+  // Kick off generation of the NEXT round in the background (called once an answer
+  // is shown). Stores the result in nextRef; the server's pending round is set to
+  // this round, so when the player taps "Next word" we just display it.
+  const prefetchNext = (lv: Level) => {
+    if (prefetchPromise.current || nextRef.current) return;
+    prefetchPromise.current = (async () => {
+      try {
+        const r = await api.round(lv.from, lv.to, usedWords.current);
+        usedWords.current = [...usedWords.current, r.word].slice(-40);
+        nextRef.current = { round: r };
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 402) nextRef.current = { out: true };
+        else nextRef.current = null; // let "Next word" fetch on demand instead
+      }
+    })();
   };
 
   const submit = async (idx: number) => {
@@ -108,6 +135,7 @@ export function App() {
       setScore((s) => ({ correct: s.correct + (a.correct ? 1 : 0), total: s.total + 1 }));
       if (a.correct) haptic.success();
       else haptic.error();
+      if (level) prefetchNext(level); // warm up the next word while they read this one
     } catch {
       setPicked(null);
       setErrorMsg(T("Ошибка. Попробуй ещё раз.", "Something went wrong. Try again."));
@@ -117,9 +145,31 @@ export function App() {
     }
   };
 
-  const next = () => {
+  const next = async () => {
     haptic.tap();
-    if (level) void fetchRound(level, usedWords);
+    // Wait for any in-flight prefetch so we never double-generate or corrupt the
+    // server's pending round.
+    if (prefetchPromise.current) {
+      setLoadingRound(true);
+      await prefetchPromise.current.catch(() => {});
+      setLoadingRound(false);
+    }
+    prefetchPromise.current = null;
+    const pre = nextRef.current;
+    nextRef.current = null;
+    if (pre?.out) {
+      await openShop("out");
+      return;
+    }
+    if (pre?.round) {
+      setRound(pre.round);
+      setAnswer(null);
+      setPicked(null);
+      setScreen("play");
+      return;
+    }
+    // No prefetched round (it errored) → fetch on demand (shows the spinner).
+    if (level) await fetchRound(level, usedWords.current);
   };
 
   const goHome = async () => {
@@ -178,6 +228,19 @@ export function App() {
   if (screen === "loading") {
     return (
       <Placeholder>
+        <Spinner size="l" />
+      </Placeholder>
+    );
+  }
+
+  // Generating a round (first word or "Next word") takes a few seconds — show a
+  // spinner instead of leaving the previous word on screen.
+  if (loadingRound) {
+    return (
+      <Placeholder
+        header={T("Минутку…", "One moment…")}
+        description={T("Подбираю слово", "Picking your word")}
+      >
         <Spinner size="l" />
       </Placeholder>
     );

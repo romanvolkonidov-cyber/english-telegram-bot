@@ -19,19 +19,21 @@ Telegram ──Open button──▶ bot.wellversed.live (Vercel: this app)
 - `api.wellversed.live` → **A record** to the VPS public IP (`158.220.94.77`).
 
 ## 2. VPS — API + TLS
-The API starts automatically with the bot when `WEBAPP_URL` is set. Add to the server
-`.env` (`/home/trader/english-bot/.env`):
+The API starts automatically with the bot when `WEBAPP_URL` is set. `deploy.sh` writes
+these into the server `.env` for you (`WEBAPP_URL`, `WEBAPP_ORIGIN`, `WEBAPP_API_PORT`,
+`ADMIN_TELEGRAM_IDS`), so a normal `./deploy.sh` is enough to start the API on
+`localhost:8081` inside the bot process.
+
+**HTTPS (one-time):** this VPS already runs **nginx** on :443 (it's also a Jitsi host),
+so the API is exposed via an nginx vhost + Let's Encrypt (certbot) — *not* Caddy. Run
+once on the server:
 ```
-WEBAPP_URL=https://bot.wellversed.live
-WEBAPP_ORIGIN=https://bot.wellversed.live
-WEBAPP_API_PORT=8081
-# optional: play free while testing (comma-separated Telegram user IDs)
-# ADMIN_TELEGRAM_IDS=123456789
+ssh trader@158.220.94.77
+sudo bash /home/trader/english-bot/webapp/install-api-nginx.sh
 ```
-Install Caddy and use `webapp/Caddyfile` (see its header for commands). Caddy gets a
-Let's Encrypt cert for `api.wellversed.live` and proxies to `localhost:8081`.
-Then deploy the bot as usual: `./deploy.sh` (it rsyncs + restarts pm2; the API now runs
-in the same process — no new service).
+It creates `/etc/nginx/conf.d/api-wellversed.conf` (proxy → `localhost:8081`) and gets
+an auto-renewing cert for `api.wellversed.live`. Verify:
+`curl https://api.wellversed.live/api/health` → `{"ok":true}`.
 
 ## 3. Vercel — frontend
 - New Vercel project, **Root Directory = `webapp`** (framework auto-detected: Vite).

@@ -187,6 +187,7 @@ async function runRound(ctx: BotContext): Promise<void> {
       GAME_FREE_ROUNDS,
       isAdmin(ctx),
       GAME_REPORT_EVERY_ROUNDS,
+      round.word,
     ).catch(() => null);
     if (milestone) await reportMilestone(ctx, milestone);
 

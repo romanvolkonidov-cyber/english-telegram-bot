@@ -65,40 +65,10 @@ echo "🔧 Ensuring Mini App env in server .env..."
   echo "   set WEBAPP_URL=$WEBAPP_URL WEBAPP_API_PORT=$WEBAPP_API_PORT ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-(none)}"
 ENVSETUP
 
-echo "🔐 Ensuring Caddy (HTTPS for $WEBAPP_API_DOMAIN)..."
-# Idempotent: if Caddy is already installed and serving the domain, this is a no-op.
-# Otherwise it installs + configures Caddy (needs passwordless sudo). If sudo would
-# prompt for a password, it skips with instructions instead of hanging the deploy.
-"${SSH[@]}" "DOMAIN='$WEBAPP_API_DOMAIN' API_PORT='$WEBAPP_API_PORT' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'CADDY' || true
-  set -e
-  cd "$REMOTE_DIR"
-  if command -v caddy >/dev/null 2>&1 && grep -q "$DOMAIN" /etc/caddy/Caddyfile 2>/dev/null; then
-    echo "   Caddy already serving $DOMAIN ✓"
-    exit 0
-  fi
-  if ! sudo -n true 2>/dev/null; then
-    echo "   ⚠ Caddy needs a one-time setup but passwordless sudo isn't available."
-    echo "     Run this ONCE on the server, then re-deploy:"
-    echo "       bash $REMOTE_DIR/webapp/install-caddy.sh"
-    exit 0
-  fi
-  if ! command -v caddy >/dev/null 2>&1; then
-    echo "   Installing Caddy…"
-    sudo apt-get update -y
-    sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl gnupg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-      | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-      | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-    sudo apt-get update -y
-    sudo apt-get install -y caddy
-  fi
-  command -v ufw >/dev/null 2>&1 && { sudo ufw allow 80/tcp || true; sudo ufw allow 443/tcp || true; }
-  printf '%s {\n\treverse_proxy localhost:%s\n}\n' "$DOMAIN" "$API_PORT" | sudo tee /etc/caddy/Caddyfile >/dev/null
-  sudo systemctl enable caddy >/dev/null 2>&1 || true
-  sudo systemctl restart caddy
-  echo "   Caddy configured for $DOMAIN ✓ (cert issues automatically in ~30s)"
-CADDY
+# NOTE: HTTPS for the API ($WEBAPP_API_DOMAIN) is a ONE-TIME server setup, not part
+# of every deploy. This VPS already runs nginx on :443 (it's also a Jitsi host), so
+# the API is exposed through an nginx vhost + a Let's Encrypt cert (certbot), NOT
+# Caddy. Run once on the server:  sudo bash webapp/install-api-nginx.sh
 
 echo "📦 Installing dependencies (clean)..."
 "${SSH[@]}" "cd $REMOTE_DIR && (npm ci --omit=dev || npm install --omit=dev)"

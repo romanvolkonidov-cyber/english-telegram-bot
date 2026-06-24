@@ -104,7 +104,7 @@ async function generateRoundOnce(
   // this is the main defense against the game looping over the same few words.
   const avoid =
     usedWords.length > 0
-      ? `\nAlready used this session — DO NOT reuse any of these, pick something clearly different:\n${usedWords.slice(-40).join(", ")}.`
+      ? `\nAlready shown to this learner — DO NOT reuse ANY of these, pick something clearly different:\n${usedWords.slice(-60).join(", ")}.`
       : "";
 
   const prompt =

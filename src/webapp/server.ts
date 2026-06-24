@@ -6,7 +6,6 @@ import { generateRound, GAME_LEVELS } from "../tutor/wordgame.js";
 import { synthesizeSpeech } from "../services/media.js";
 import {
   getGameWallet,
-  peekGameRound,
   commitGameRound,
   recordGameAnswer,
   getWeeklyLeaderboard,
@@ -136,25 +135,34 @@ export function startWebappServer(deps: WebappDeps): void {
         return;
       }
 
-      if (!(await peekGameRound(user.telegramId, GAME_FREE_ROUNDS, admin))) {
+      // One wallet read: serves as both the play-gate and the source of the
+      // persisted recent-words list (the key to NOT repeating words across launches).
+      const gw0 = await getGameWallet(user.telegramId).catch(() => null);
+      const canPlay = admin || (gw0 ? gw0.freeRoundsUsed < GAME_FREE_ROUNDS || gw0.paidRoundsLeft > 0 : true);
+      if (!canPlay) {
         res.status(402).json({ error: "out_of_rounds" });
         return;
       }
 
-      const usedWords = Array.isArray(body.usedWords)
-        ? body.usedWords.map((w) => String(w)).slice(-40)
-        : [];
-      const round = await generateRound(level.from, level.to, nativeLanguageFor(user), usedWords);
+      // Avoid both the player's PERSISTED recent words and this session's words.
+      const clientUsed = Array.isArray(body.usedWords) ? body.usedWords.map((w) => String(w)) : [];
+      const avoid = [...(gw0?.recentWords ?? []), ...clientUsed];
+      const round = await generateRound(level.from, level.to, nativeLanguageFor(user), avoid);
       if (!round) {
         res.status(503).json({ error: "generation_failed" });
         return;
       }
 
-      // Charge the round (records real cost + may emit an admin milestone, which we
-      // surface to admins out-of-band via the bot; here we just ignore the return).
-      await commitGameRound(user.telegramId, round.costUsd, GAME_FREE_ROUNDS, admin, GAME_REPORT_EVERY_ROUNDS).catch(
-        () => null,
-      );
+      // Charge the round AND record the served word (persisted for cross-session
+      // repeat-avoidance). May emit an admin milestone — surfaced via the bot.
+      await commitGameRound(
+        user.telegramId,
+        round.costUsd,
+        GAME_FREE_ROUNDS,
+        admin,
+        GAME_REPORT_EVERY_ROUNDS,
+        round.word,
+      ).catch(() => null);
 
       pending.set(user.telegramId, {
         correctIndex: round.correctIndex,

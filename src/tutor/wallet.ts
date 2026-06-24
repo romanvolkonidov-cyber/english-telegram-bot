@@ -138,8 +138,14 @@ export interface GameWallet {
   weeklyCorrect: number;
   /** Name shown on the leaderboard (first name / nickname). */
   displayName: string;
+  /** Recently-served words (most recent last), so the generator avoids repeats
+   *  ACROSS sessions/launches — the main defense against seeing the same words. */
+  recentWords?: string[];
   updatedAt: number;
 }
+
+/** How many recent words to remember per player for repeat-avoidance. */
+export const RECENT_WORDS_CAP = 120;
 
 /** One leaderboard row. */
 export interface LeaderRow {
@@ -194,6 +200,7 @@ async function getGameWalletRaw(telegramId: string): Promise<GameWallet> {
     if (d.weekKey === undefined) d.weekKey = "";
     if (d.weeklyCorrect === undefined) d.weeklyCorrect = 0;
     if (d.displayName === undefined) d.displayName = "";
+    if (d.recentWords === undefined) d.recentWords = [];
     return d;
   }
   return {
@@ -211,6 +218,7 @@ async function getGameWalletRaw(telegramId: string): Promise<GameWallet> {
     weekKey: "",
     weeklyCorrect: 0,
     displayName: "",
+    recentWords: [],
     updatedAt: Date.now(),
   };
 }
@@ -251,10 +259,32 @@ export async function commitGameRound(
   freeRoundsTotal: number,
   isAdmin: boolean,
   milestoneEvery: number,
+  word?: string,
 ): Promise<GameMilestone | null> {
+  // Always remember the served word for cross-session repeat-avoidance — even for
+  // admins (who don't consume rounds), so testing also gets fresh words.
+  if (word?.trim()) {
+    const gw0 = await getGameWalletRaw(telegramId);
+    gw0.recentWords = [...(gw0.recentWords ?? []), word.trim()].slice(-RECENT_WORDS_CAP);
+    if (isAdmin) {
+      await saveGameWallet(gw0);
+      return null;
+    }
+    // fall through using gw0 for the rest (avoids a second read)
+    return await finishCommit(gw0, costUsd, freeRoundsTotal, milestoneEvery);
+  }
   if (isAdmin) return null;
   const gw = await getGameWalletRaw(telegramId);
+  return await finishCommit(gw, costUsd, freeRoundsTotal, milestoneEvery);
+}
 
+/** Apply a consumed round (decrement balance, book cost, maybe emit a milestone). */
+async function finishCommit(
+  gw: GameWallet,
+  costUsd: number,
+  freeRoundsTotal: number,
+  milestoneEvery: number,
+): Promise<GameMilestone | null> {
   if (gw.freeRoundsUsed < freeRoundsTotal) gw.freeRoundsUsed += 1;
   else if (gw.paidRoundsLeft > 0) gw.paidRoundsLeft -= 1;
   // If neither is available (a rare peek/commit race) we still count the round —
