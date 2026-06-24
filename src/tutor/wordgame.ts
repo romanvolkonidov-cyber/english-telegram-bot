@@ -1,6 +1,4 @@
 import { callClaude } from "../services/claude.js";
-import { generateImage, type GeneratedImage } from "../services/media.js";
-import { MEDIA_COST_USD } from "./pricing.js";
 
 /** CEFR level pairs available in the game. */
 export const GAME_LEVELS: { from: string; to: string; label: string }[] = [
@@ -17,16 +15,19 @@ export interface GameRound {
   options: string[];      // 4 options, shuffled
   correctIndex: number;
   explain: string;        // why the correct option is the best synonym
+  /** Real USD cost of the LLM calls for this round (generation + verification). */
   costUsd: number;
-  image: GeneratedImage | null;
 }
 
 const SYSTEM = `You are an English vocabulary trainer generating word game rounds. Return ONLY valid JSON — no markdown, no code fences.`;
 
 /**
- * Ask Claude to pick a word at `fromLevel`, then produce a correct synonym at
- * `toLevel` plus three plausible-but-wrong distractors. An image prompt is
- * generated so we can show a picture of the main word.
+ * Generate a round, then verify it with a cheap fast model. The verifier checks
+ * the two failure modes that actually hurt the game: (1) the "correct" option must
+ * really be a synonym of the word, and (2) none of the distractors may ALSO be a
+ * synonym (a question must have exactly one right answer). If a round fails, we
+ * regenerate once. Verification is fail-open: if the verifier is unreachable we
+ * keep the round rather than dead-end the player. All call costs are accumulated.
  */
 export async function generateRound(
   fromLevel: string,
@@ -34,53 +35,123 @@ export async function generateRound(
   nativeLanguage: string,
   usedWords: string[],
 ): Promise<GameRound | null> {
+  let last: GameRound | null = null;
+  let verifyCost = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const round = await generateRoundOnce(fromLevel, toLevel, nativeLanguage, usedWords);
+    if (!round) continue;
+    last = round;
+    const correct = round.options[round.correctIndex] ?? "";
+    const distractors = round.options.filter((_, i) => i !== round.correctIndex);
+    const v = await verifyRound(round.word, correct, distractors);
+    verifyCost += v.costUsd;
+    if (v.valid) return { ...round, costUsd: round.costUsd + verifyCost };
+  }
+  // No round passed verification in 2 tries — show the last one anyway (better than
+  // a dead-end; the generation prompt already aims for correctness), cost included.
+  return last ? { ...last, costUsd: last.costUsd + verifyCost } : null;
+}
+
+/**
+ * Cheap second-opinion check on a generated round. Returns valid=false only when
+ * the verifier is confident the correct answer is wrong OR another option is also
+ * a synonym. Fail-open (valid=true) on any outage/parse error.
+ */
+async function verifyRound(
+  word: string,
+  correct: string,
+  distractors: string[],
+): Promise<{ valid: boolean; costUsd: number }> {
+  const prompt =
+    `Check a synonym question for an English learner game.\n` +
+    `WORD: "${word}"\n` +
+    `Marked correct answer: "${correct}"\n` +
+    `Other options (these should NOT be synonyms of WORD): ${distractors.map((d) => `"${d}"`).join(", ")}\n\n` +
+    `A synonym can replace WORD in a sentence with essentially the same meaning. Be strict but fair.\n` +
+    `Return ONLY this JSON: {"correctIsSynonym": true|false, "otherSynonyms": ["any of the other options that are ALSO a synonym of WORD"]}`;
+  const result = await callClaude({
+    system: "You are a precise English lexicographer. Return ONLY valid JSON, no prose.",
+    messages: [{ role: "user", content: prompt }],
+    maxTokens: 150,
+    temperature: 0,
+    prefill: "{",
+  });
+  if (!result) return { valid: true, costUsd: 0 }; // verifier down → don't block play
+  try {
+    const raw = result.text.trimStart();
+    const text = raw.startsWith("{") ? raw : "{" + raw;
+    const end = text.lastIndexOf("}");
+    const obj = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as {
+      correctIsSynonym?: boolean;
+      otherSynonyms?: unknown[];
+    };
+    const others = Array.isArray(obj.otherSynonyms) ? obj.otherSynonyms : [];
+    const valid = obj.correctIsSynonym === true && others.length === 0;
+    return { valid, costUsd: result.costUsd };
+  } catch {
+    return { valid: true, costUsd: result.costUsd }; // unparseable → keep the round
+  }
+}
+
+/** Generate a single candidate round (one LLM call). */
+async function generateRoundOnce(
+  fromLevel: string,
+  toLevel: string,
+  nativeLanguage: string,
+  usedWords: string[],
+): Promise<GameRound | null> {
+  // Show the model the recent history so it actively varies the word it picks —
+  // this is the main defense against the game looping over the same few words.
   const avoid =
     usedWords.length > 0
-      ? `\nAvoid these already-used words: ${usedWords.slice(-30).join(", ")}.`
+      ? `\nAlready used this session — DO NOT reuse any of these, pick something clearly different:\n${usedWords.slice(-40).join(", ")}.`
       : "";
 
   const prompt =
-    `Generate one word-synonym game round.\n` +
-    `Main word level: ${fromLevel}  |  Synonym level: ${toLevel}\n` +
-    `Student language: ${nativeLanguage}${avoid}\n\n` +
+    `Generate one vocabulary-synonym game round for an English learner.\n` +
+    `The MAIN WORD must be a genuine CEFR ${fromLevel} item; the SYNONYM must be a step up at CEFR ${toLevel}.\n` +
+    `Student's native language: ${nativeLanguage}${avoid}\n\n` +
     `Return ONLY this JSON object:\n` +
     `{\n` +
-    `  "word": "a common, concrete ${fromLevel} English word",\n` +
+    `  "word": "a genuine CEFR ${fromLevel} English word or short phrase",\n` +
     `  "definition": "brief meaning in ${nativeLanguage} (max 8 words)",\n` +
-    `  "imagePrompt": "vivid 6-word English scene or object for the word",\n` +
-    `  "correct": "the best ${toLevel} synonym",\n` +
-    `  "distractors": ["${toLevel} word related but NOT a synonym", "another ${toLevel} non-synonym", "a third ${toLevel} non-synonym"],\n` +
-    `  "explain": "one sentence in ${nativeLanguage}: why correct is the best synonym"\n` +
+    `  "correct": "the best CEFR ${toLevel} synonym (a word OR phrase)",\n` +
+    `  "distractors": ["${toLevel} item related but NOT a synonym", "another ${toLevel} non-synonym", "a third ${toLevel} non-synonym"],\n` +
+    `  "explain": "2 short sentences in ${nativeLanguage}: (1) confirm the answer and what word + correct both mean; (2) a useful nuance — how correct differs from word (register, strength, connotation, or a typical collocation)"\n` +
     `}\n\n` +
     `Rules:\n` +
-    `- word: everyday practical vocabulary (body, food, feelings, actions, places)\n` +
-    `- correct: genuinely more sophisticated synonym at ${toLevel}\n` +
-    `- distractors: plausible ${toLevel} words from the same topic, but NOT synonyms\n` +
-    `- definition and explain: keep short and clear`;
+    `- word: the difficulty level is the POINT of the game. It MUST genuinely belong to CEFR ${fromLevel} — not easier. For higher levels (B1, B2, C1) that means a real ${fromLevel} word a learner at that level is just acquiring, NOT a beginner A1/A2 word. A single word or a short phrase are both fine.\n` +
+    `- VARIETY IS CRITICAL: choose a fresh word each round and rotate across many topics (work, emotions, nature, society, abstract ideas, science, daily life, travel, opinions). Do NOT default to the same handful of words or always to phrasal verbs — surprise the player every time.\n` +
+    `- correct: EXACTLY ONE genuine synonym of word that could replace it in a sentence with the same meaning, at CEFR ${toLevel} and clearly more advanced than word. There must be only ONE defensible right answer.\n` +
+    `- distractors: 3 CHALLENGING ${toLevel} words/phrases — plausible and tempting (same topic/register, or that LOOK or SOUND synonymous but aren't). Never a true synonym of word, never equal to correct, no duplicates.\n` +
+    `- keep everything 100% clean and appropriate for ALL ages: nothing rude, scary, sexual, violent, political, or offensive.\n` +
+    `- all four options must be different.\n` +
+    `- definition: keep very short; explain: clear and genuinely informative (max 2 sentences).`;
 
   const result = await callClaude({
     system: SYSTEM,
     messages: [{ role: "user", content: prompt }],
-    maxTokens: 300,
-    temperature: 0.9,
+    maxTokens: 400,
+    temperature: 1.0, // high sampling → more variety in the chosen word
     prefill: "{",
   });
   if (!result) return null;
 
-  let obj: {
+  interface RoundJSON {
     word?: string;
     definition?: string;
-    imagePrompt?: string;
     correct?: string;
     distractors?: unknown[];
     explain?: string;
-  } | null = null;
+  }
+
+  let obj: RoundJSON | null = null;
 
   try {
     const raw = result.text.trimStart();
     const text = raw.startsWith("{") ? raw : "{" + raw;
     const end = text.lastIndexOf("}");
-    obj = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as typeof obj;
+    obj = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as RoundJSON;
   } catch {
     return null;
   }
@@ -94,16 +165,29 @@ export async function generateRound(
     return null;
   }
 
+  // Build the option pool, dropping any distractor that duplicates the correct
+  // answer (case-insensitively) or another distractor — otherwise two buttons
+  // could both be "correct", or a real synonym could slip in as a wrong answer.
+  const correct = obj.correct.trim();
+  const seen = new Set([correct.toLowerCase()]);
+  const distractors: string[] = [];
+  for (const d of obj.distractors.map((x) => String(x).trim())) {
+    const key = d.toLowerCase();
+    if (!d || seen.has(key)) continue;
+    seen.add(key);
+    distractors.push(d);
+    if (distractors.length === 3) break;
+  }
+  // Need a full set of plausible wrong answers; a degenerate round isn't worth showing.
+  if (distractors.length < 3) return null;
+
   // Shuffle the four options and track where the correct one lands.
-  const pool = [obj.correct, ...obj.distractors.slice(0, 3).map(String)];
+  const pool = [correct, ...distractors];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j]!, pool[i]!];
   }
-  const correctIndex = pool.indexOf(obj.correct);
-
-  const image = await generateImage(obj.imagePrompt ?? obj.word).catch(() => null);
-  const imageCost = image ? MEDIA_COST_USD.image : 0;
+  const correctIndex = pool.indexOf(correct);
 
   return {
     word: obj.word.trim(),
@@ -111,7 +195,6 @@ export async function generateRound(
     options: pool,
     correctIndex,
     explain: (obj.explain ?? "").trim(),
-    costUsd: result.costUsd + imageCost,
-    image,
+    costUsd: result.costUsd,
   };
 }

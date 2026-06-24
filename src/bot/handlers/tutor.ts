@@ -255,8 +255,7 @@ function lessonContext(topicId: number, lesson: MicroLesson): LessonContext {
 export async function learnCommand(ctx: BotContext): Promise<void> {
   if (!hasTutorLLM) {
     await ctx.reply(
-      "🤖 The AI tutor isn't set up yet. Add a Claude key — either ANTHROPIC_API_KEY, " +
-        "or Claude-on-AWS (ANTHROPIC_AWS_API_KEY + ANTHROPIC_AWS_WORKSPACE_ID).",
+      "🤖 The AI tutor isn't set up yet. Add a DEEPSEEK API key to the environment.",
     );
     return;
   }

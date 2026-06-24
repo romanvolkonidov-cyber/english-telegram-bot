@@ -12,6 +12,15 @@ LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH=(ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SERVER")
 cd "$LOCAL_DIR"
 
+# ── Word-game Mini App env ──────────────────────────────────────────────────────
+# These are written into the server's .env on every deploy (other keys like
+# BOT_TOKEN / DEEPSEEK are left untouched — .env is never rsynced). Edit here once.
+WEBAPP_URL="https://bot.wellversed.live"      # the HTTPS URL Telegram opens (Vercel)
+WEBAPP_API_PORT="8081"                         # local port the in-process API listens on
+# Telegram user IDs that play the Mini App for FREE (comma-separated): you + wife.
+# Override at run time too: ADMIN_TELEGRAM_IDS=123,456 ./deploy.sh
+ADMIN_TELEGRAM_IDS="${ADMIN_TELEGRAM_IDS:-7057284380,1752767024}"
+
 if [ "${SKIP_PULL:-0}" != "1" ]; then
   BRANCH="$(git rev-parse --abbrev-ref HEAD)"
   echo "⬇️  Pulling latest on '$BRANCH'..."
@@ -33,6 +42,27 @@ rsync -avz --delete \
   --exclude='.git' --exclude='node_modules' --exclude='.env' --exclude='*.log' \
   -e "ssh -o StrictHostKeyChecking=no -i $SSH_KEY" \
   "$LOCAL_DIR/" "$SERVER:$REMOTE_DIR/"
+
+echo "🔧 Ensuring Mini App env in server .env..."
+# Idempotently set just the web-app keys (replace each line if present, else append).
+# Local values are injected as env vars; the heredoc runs remotely and edits .env
+# in place — every other secret in .env is preserved.
+"${SSH[@]}" "WEBAPP_URL='$WEBAPP_URL' WEBAPP_API_PORT='$WEBAPP_API_PORT' ADMIN_TELEGRAM_IDS='$ADMIN_TELEGRAM_IDS' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'ENVSETUP'
+  set -e
+  cd "$REMOTE_DIR"
+  touch .env
+  set_kv() {
+    key="$1"; val="$2"
+    # Drop any existing definition, then append the current value.
+    sed -i "/^${key}=/d" .env
+    printf '%s=%s\n' "$key" "$val" >> .env
+  }
+  set_kv WEBAPP_URL "$WEBAPP_URL"
+  set_kv WEBAPP_ORIGIN "$WEBAPP_URL"
+  set_kv WEBAPP_API_PORT "$WEBAPP_API_PORT"
+  set_kv ADMIN_TELEGRAM_IDS "$ADMIN_TELEGRAM_IDS"
+  echo "   set WEBAPP_URL=$WEBAPP_URL WEBAPP_API_PORT=$WEBAPP_API_PORT ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-(none)}"
+ENVSETUP
 
 echo "📦 Installing dependencies (clean)..."
 "${SSH[@]}" "cd $REMOTE_DIR && (npm ci --omit=dev || npm install --omit=dev)"

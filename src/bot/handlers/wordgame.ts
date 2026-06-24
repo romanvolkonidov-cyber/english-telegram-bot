@@ -1,25 +1,32 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext } from "../context.js";
 import { generateRound, GAME_LEVELS } from "../../tutor/wordgame.js";
+import { synthesizeSpeech } from "../../services/media.js";
+import { startLoadingHints } from "../loadingHints.js";
 import {
   GAME_FREE_ROUNDS,
   GAME_STARS_PER_ROUND,
+  GAME_REPORT_EVERY_ROUNDS,
   GAME_PACKAGES,
-  GAME_ROUND_COST_USD,
   GAME_CUSTOM_STARS_PER_ROUND,
   GAME_CUSTOM_MIN_STARS,
   GAME_CUSTOM_MAX_STARS,
   roundsForCustomStars,
   STAR_NET_USD,
+  MEDIA_COST_USD,
   gamePackageById,
 } from "../../tutor/pricing.js";
 import {
   getGameWallet,
-  consumeGameRound,
+  peekGameRound,
+  commitGameRound,
   creditGameRounds,
+  recordGameAnswer,
+  getWeeklyLeaderboard,
+  type GameMilestone,
 } from "../../tutor/wallet.js";
 import { notifyAdmins } from "../../services/adminNotify.js";
-import { config } from "../../config.js";
+import { hasGemini } from "../../config.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +42,18 @@ function tr(ctx: BotContext, ru: string, en: string): string {
   return ctx.session.lang === "en" ? en : ru;
 }
 
+/** Keep a chat action ("typing" / "record_voice") visible across a long task —
+ *  Telegram actions expire after ~5 s, so a single send vanishes while we generate
+ *  and the player thinks the bot froze. Re-sends every 4 s; returns a stop fn. */
+function keepThinking(
+  ctx: BotContext,
+  action: Parameters<typeof ctx.replyWithChatAction>[0] = "typing",
+): () => void {
+  ctx.replyWithChatAction(action).catch(() => {});
+  const id = setInterval(() => ctx.replyWithChatAction(action).catch(() => {}), 4000);
+  return () => clearInterval(id);
+}
+
 // ── entry: /wordgame command or "wg" menu button ──────────────────────────────
 
 export async function wordGameCommand(ctx: BotContext): Promise<void> {
@@ -47,6 +66,7 @@ export async function showLevelMenu(ctx: BotContext): Promise<void> {
   for (const lv of GAME_LEVELS) {
     kb.text(`${lv.label}`, `wg:lv:${lv.from}:${lv.to}`).row();
   }
+  kb.text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb").row();
   kb.text(tr(ctx, "⬅️ Меню", "⬅️ Menu"), "menu");
 
   const gw = await getGameWallet(tg(ctx)).catch(() => null);
@@ -62,8 +82,8 @@ export async function showLevelMenu(ctx: BotContext): Promise<void> {
   await ctx.reply(
     tr(
       ctx,
-      `🎮 <b>Игра слов</b>\nВыбери уровень: тебе покажут слово с картинкой, а ты найдёшь лучший синоним уровнем выше.\n\n${balanceLine}`,
-      `🎮 <b>Word game</b>\nChoose a level: you'll see a word with a picture and pick the best higher-level synonym.\n\n${balanceLine}`,
+      `🎮 <b>Игра слов</b>\nВыбери уровень: тебе покажут слово, а ты найдёшь лучший синоним уровнем выше.\n\n${balanceLine}`,
+      `🎮 <b>Word game</b>\nChoose a level: you'll see a word and pick the best higher-level synonym.\n\n${balanceLine}`,
     ),
     { parse_mode: "HTML", reply_markup: kb },
   );
@@ -76,6 +96,13 @@ export async function startGameLevel(
   fromLevel: string,
   toLevel: string,
 ): Promise<void> {
+  // If we're already mid-generation on a freshly-started game, ignore a second
+  // level tap (mashing the level menu mustn't spin up parallel games).
+  if (ctx.session.flow?.kind === "wordgame" && ctx.session.flow.busy) return;
+  // Lock the level-menu buttons so re-tapping them does nothing.
+  try {
+    await ctx.editMessageReplyMarkup();
+  } catch { /* ignore */ }
   ctx.session.flow = {
     kind: "wordgame",
     fromLevel,
@@ -89,72 +116,150 @@ export async function startGameLevel(
 
 // ── generate and show one round ───────────────────────────────────────────────
 
+export async function nextGameRound(ctx: BotContext): Promise<void> {
+  await runRound(ctx);
+}
+
 async function runRound(ctx: BotContext): Promise<void> {
   const flow = ctx.session.flow?.kind === "wordgame" ? ctx.session.flow : null;
   if (!flow) return;
 
-  // Check balance before spending an API call.
-  const canPlay = await consumeGameRound(tg(ctx), GAME_FREE_ROUNDS, isAdmin(ctx));
-  if (!canPlay) {
-    await showGameBuyMenu(ctx, "out");
-    return;
-  }
-
-  await ctx.replyWithChatAction("typing");
-
-  const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
-  const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
-
-  if (!round) {
-    await ctx.reply(
-      tr(
-        ctx,
-        "⏳ Не удалось сгенерировать раунд — попробуй ещё раз.",
-        "⏳ Couldn't generate a round — please try again.",
-      ),
-      {
-        reply_markup: new InlineKeyboard()
-          .text(tr(ctx, "🔄 Ещё раз", "🔄 Try again"), "wg:retry")
-          .text(tr(ctx, "⬅️ Уровни", "⬅️ Levels"), "wg:levels"),
-      },
-    );
-    return;
-  }
-
-  // Track used words to avoid repetition.
-  flow.usedWords.push(round.word);
-  flow.total += 1;
-
-  // Store current round in flow for the answer handler.
-  flow.currentOptions = round.options;
-  flow.correctIndex = round.correctIndex;
-  flow.currentExplain = round.explain;
-  flow.currentWord = round.word;
-  flow.roundCostUsd = round.costUsd;
-
-  // Send image if available.
-  if (round.image) {
-    const ext = round.image.mimeType.includes("jpeg") ? "jpg" : "png";
-    try {
-      await ctx.replyWithPhoto(new InputFile(Buffer.from(round.image.bytes), `word.${ext}`));
-    } catch {
-      /* non-fatal — continue without image */
+  // Double-tap guard: ignore a repeat "Next word" while one is still generating,
+  // OR while a question is already on screen waiting to be answered (a nervous
+  // re-tap must not generate or charge a second round).
+  if (flow.busy || flow.correctIndex !== undefined) return;
+  flow.busy = true;
+  // Keep a "typing" indicator alive through generation+verification so the player
+  // never sees the bot go silent. Stopped once the question is on screen; the outer
+  // finally guarantees cleanup on any early return.
+  let stopThinking = () => {};
+  // "I'm running to you…" pics if the FIRST round is slow (first turn does the most
+  // work). Cancelled the moment the question is ready.
+  const firstRound = flow.total === 0;
+  let cancelHints = () => {};
+  try {
+    // Is a round available? (peek only — we charge AFTER a successful round, so a
+    // failed generation never costs the student a round, and "Try again" is free.)
+    const canPlay = await peekGameRound(tg(ctx), GAME_FREE_ROUNDS, isAdmin(ctx));
+    if (!canPlay) {
+      await showGameBuyMenu(ctx, "out");
+      return;
     }
+
+    stopThinking = keepThinking(ctx, "typing");
+    if (firstRound) cancelHints = startLoadingHints(ctx);
+
+    const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
+    const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
+
+    if (!round) {
+      cancelHints();
+      await ctx.reply(
+        tr(
+          ctx,
+          "⏳ Небольшая заминка на стороне ИИ — он сейчас перегружен, обычно это быстро проходит. Попробуй ещё раз (это бесплатно).",
+          "⏳ A brief hiccup on the AI's side — it's momentarily overloaded and usually recovers quickly. Try again (this is free).",
+        ),
+        {
+          reply_markup: new InlineKeyboard()
+            .text(tr(ctx, "🔄 Ещё раз", "🔄 Try again"), "wg:retry")
+            .text(tr(ctx, "⬅️ Уровни", "⬅️ Levels"), "wg:levels"),
+        },
+      );
+      return;
+    }
+
+    const letter = (i: number) => String.fromCharCode(65 + i);
+
+    // We send a short pronunciation voice note AFTER the question (below) so the
+    // question appears immediately instead of waiting on TTS. Book its cost now
+    // (one flat ~$0.01 TTS call) when speech is available — pure audio, no LLM.
+    const willSpeak = hasGemini;
+    const voiceCostUsd = willSpeak ? MEDIA_COST_USD.tts : 0;
+
+    const roundCostUsd = round.costUsd + voiceCostUsd;
+
+    // Round is good — now consume it and book its real cost (DeepSeek + any voice).
+    // Fire an admin profit report every N rounds played.
+    const milestone = await commitGameRound(
+      tg(ctx),
+      roundCostUsd,
+      GAME_FREE_ROUNDS,
+      isAdmin(ctx),
+      GAME_REPORT_EVERY_ROUNDS,
+    ).catch(() => null);
+    if (milestone) await reportMilestone(ctx, milestone);
+
+    // Track used words (cap the list so the persisted session can't grow forever).
+    flow.usedWords.push(round.word);
+    if (flow.usedWords.length > 60) flow.usedWords = flow.usedWords.slice(-60);
+    flow.total += 1;
+
+    // Store current round in flow for the answer handler.
+    flow.currentOptions = round.options;
+    flow.correctIndex = round.correctIndex;
+    flow.currentExplain = round.explain;
+    flow.currentWord = round.word;
+    flow.roundCostUsd = roundCostUsd;
+
+    // Build options keyboard.
+    const kb = new InlineKeyboard();
+    round.options.forEach((opt, i) => {
+      kb.text(`${letter(i)}. ${opt}`, `wg:ans:${i}`).row();
+    });
+    kb.text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
+
+    const header = tr(
+      ctx,
+      `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Какой синоним уровня <b>${flow.toLevel}</b> подходит лучше всего?`,
+      `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Which <b>${flow.toLevel}</b> synonym fits best?`,
+    );
+
+    cancelHints(); // the question is ready — stop the "I'm running…" pics
+    await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
+    stopThinking(); // question is on screen — drop the "typing" indicator
+
+    // Now synthesize and send the pronunciation voice note — the question is
+    // already visible and answerable, so TTS latency no longer blocks the round.
+    // Show a "recording audio" indicator so the incoming voice is expected.
+    if (willSpeak) {
+      const stopRecording = keepThinking(ctx, "record_voice");
+      try {
+        const voiceScript =
+          `${round.word}. Which word means the same as ${round.word}? ` +
+          round.options.map((o, i) => `${letter(i)}: ${o}.`).join(" ");
+        const voiceOgg = await synthesizeSpeech(voiceScript).catch(() => null);
+        if (voiceOgg) {
+          await ctx.replyWithVoice(new InputFile(voiceOgg, "wordgame.ogg"));
+        }
+      } catch {
+        /* non-fatal — the round is fully playable without the audio */
+      } finally {
+        stopRecording();
+      }
+    }
+  } finally {
+    cancelHints(); // safety: clears any pending "I'm running…" pics on early return
+    stopThinking(); // safety: clears the interval on any early return above
+    flow.busy = false;
   }
+}
 
-  // Build options keyboard.
-  const kb = new InlineKeyboard();
-  round.options.forEach((opt, i) => {
-    kb.text(`${String.fromCharCode(65 + i)}. ${opt}`, `wg:ans:${i}`).row();
-  });
-  kb.text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
-
-  const header = tr(
+/** Send the admin profit report for a student's N-round milestone. */
+async function reportMilestone(ctx: BotContext, m: GameMilestone): Promise<void> {
+  const onTrial = m.lifetimeStarsPaid === 0;
+  const profitLine = onTrial
+    ? `🎁 Free-trial cost so far: −$${m.lifetimeCostUsd.toFixed(4)} (no purchase yet)`
+    : `${m.lifetimeProfitUsd >= 0 ? "🟢" : "🔴"} Profit (lifetime): ${m.lifetimeProfitUsd >= 0 ? "+" : ""}$${m.lifetimeProfitUsd.toFixed(2)}`;
+  await notifyAdmins(ctx.api, {
+    title: `🎮 Game milestone — ${m.totalRounds} rounds played`,
     ctx,
-    `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Какой синоним уровня <b>${flow.toLevel}</b> подходит лучше всего?`,
-    `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Which <b>${flow.toLevel}</b> synonym fits best?`,
-  );
-  await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
+    details:
+      `Last ${m.batchRounds} rounds cost: $${m.batchCostUsd.toFixed(4)} (real API, DeepSeek + voice)\n` +
+      `Lifetime cost: $${m.lifetimeCostUsd.toFixed(4)}\n` +
+      `Paid: ${m.lifetimeStarsPaid} ⭐ → net $${m.lifetimeNetUsd.toFixed(2)} (after Telegram + conversion)\n` +
+      profitLine,
+  }).catch(() => {});
 }
 
 // ── answer handler ────────────────────────────────────────────────────────────
@@ -166,6 +271,18 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     return;
   }
 
+  // Single-shot: snapshot the round and clear it IMMEDIATELY, so a second tap (a
+  // nervous double-press on the options) sees no pending question and bails above —
+  // no double-scoring, no double follow-up.
+  const correctIndex = flow.correctIndex;
+  const options = flow.currentOptions ?? [];
+  const currentExplain = flow.currentExplain;
+  flow.currentOptions = undefined;
+  flow.correctIndex = undefined;
+  flow.currentExplain = undefined;
+  flow.currentWord = undefined;
+  flow.roundCostUsd = undefined;
+
   await ctx.answerCallbackQuery();
 
   // Lock the buttons.
@@ -173,11 +290,15 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     await ctx.editMessageReplyMarkup();
   } catch { /* ignore */ }
 
-  const correct = optIndex === flow.correctIndex;
+  const correct = optIndex === correctIndex;
   if (correct) flow.score += 1;
 
-  const chosenWord = flow.currentOptions?.[optIndex] ?? "";
-  const correctWord = flow.currentOptions?.[flow.correctIndex] ?? "";
+  // Persist the outcome (lifetime totals, streak, weekly leaderboard counter).
+  const displayName = ctx.session.name ?? ctx.from?.first_name ?? "Player";
+  const stats = await recordGameAnswer(tg(ctx), correct, displayName).catch(() => null);
+
+  const chosenWord = options[optIndex] ?? "";
+  const correctWord = options[correctIndex] ?? "";
 
   const verdict = correct
     ? tr(ctx, `✅ Верно! <b>${chosenWord}</b> — это лучший синоним.`, `✅ Correct! <b>${chosenWord}</b> is the best synonym.`)
@@ -187,39 +308,26 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
         `❌ Not quite. You chose: <b>${chosenWord}</b>\n✅ Best synonym: <b>${correctWord}</b>`,
       );
 
-  const explainLine = flow.currentExplain
-    ? `\n\n<i>${flow.currentExplain}</i>`
-    : "";
-
-  // Admin cost reporting.
-  if (isAdmin(ctx)) {
-    const costUsd = flow.roundCostUsd ?? GAME_ROUND_COST_USD;
-    const netUsd = GAME_STARS_PER_ROUND * STAR_NET_USD;
-    const profit = netUsd - costUsd;
-    await ctx.reply(
-      `💸 Round cost $${costUsd.toFixed(4)} | net $${netUsd.toFixed(4)} | P&L ${profit >= 0 ? "+" : ""}$${profit.toFixed(4)}`,
-    ).catch(() => {});
-  }
-
-  // Clear round state.
-  flow.currentOptions = undefined;
-  flow.correctIndex = undefined;
-  flow.currentExplain = undefined;
-  flow.currentWord = undefined;
-  flow.roundCostUsd = undefined;
+  const explainLine = currentExplain ? `\n\n<i>${currentExplain}</i>` : "";
 
   const scoreInfo = tr(
     ctx,
     `📊 Счёт: <b>${flow.score}/${flow.total}</b>`,
     `📊 Score: <b>${flow.score}/${flow.total}</b>`,
   );
+  // A streak line once it's worth celebrating (2+ in a row).
+  const streakLine =
+    stats && stats.currentStreak >= 2
+      ? tr(ctx, `   🔥 Серия: <b>${stats.currentStreak}</b>`, `   🔥 Streak: <b>${stats.currentStreak}</b>`)
+      : "";
 
   const kb = new InlineKeyboard()
     .text(tr(ctx, "▶️ Следующее слово", "▶️ Next word"), "wg:next")
     .row()
+    .text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb")
     .text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
 
-  await ctx.reply(`${verdict}${explainLine}\n\n${scoreInfo}`, {
+  await ctx.reply(`${verdict}${explainLine}\n\n${scoreInfo}${streakLine}`, {
     parse_mode: "HTML",
     reply_markup: kb,
   });
@@ -238,24 +346,31 @@ export async function showGameBuyMenu(ctx: BotContext, reason: "out" | "menu"): 
         )
       : tr(ctx, "🎮 <b>Игра слов — пополнение</b>", "🎮 <b>Word Game — top up</b>");
 
-  const lines = [lead, ""];
+  // Flat rate across every package and the custom top-up — bigger packs simply
+  // bundle more rounds at the same price per round.
+  const rate = GAME_STARS_PER_ROUND;
+  const lines = [
+    lead,
+    "",
+    tr(ctx, `💎 Цена: <b>${rate} ⭐ за раунд</b> (одинаково для всех пакетов).`, `💎 Price: <b>${rate} ⭐ per round</b> (same for every pack).`),
+    "",
+  ];
   const kb = new InlineKeyboard();
   for (const p of GAME_PACKAGES) {
-    const perRound = Math.round(p.stars / p.rounds);
     lines.push(
       tr(
         ctx,
-        `• <b>${p.title}</b> — ${p.stars} ⭐  (${perRound} ⭐/раунд)`,
-        `• <b>${p.title}</b> — ${p.stars} ⭐  (${perRound} ⭐/round)`,
+        `• <b>${p.title}</b> — ${p.stars} ⭐`,
+        `• <b>${p.title}</b> — ${p.stars} ⭐`,
       ),
     );
-    kb.text(`🎮 ${p.rounds} раундов · ${p.stars} ⭐`, `wg:buy:${p.id}`).row();
+    kb.text(tr(ctx, `🎮 ${p.rounds} раундов · ${p.stars} ⭐`, `🎮 ${p.rounds} rounds · ${p.stars} ⭐`), `wg:buy:${p.id}`).row();
   }
   lines.push(
     tr(
       ctx,
-      `• <b>Своя сумма</b> — ${GAME_CUSTOM_STARS_PER_ROUND} ⭐/раунд`,
-      `• <b>Custom amount</b> — ${GAME_CUSTOM_STARS_PER_ROUND} ⭐/round`,
+      `• <b>Своя сумма</b> — ${rate} ⭐/раунд`,
+      `• <b>Custom amount</b> — ${rate} ⭐/round`,
     ),
   );
   kb.text(tr(ctx, "✏️ Своя сумма", "✏️ Custom amount"), "wg:custom").row();
@@ -391,18 +506,73 @@ export async function endGame(ctx: BotContext): Promise<void> {
   const score = flow?.score ?? 0;
   const total = flow?.total ?? 0;
   const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+
+  // Pull the persistent stats for an all-time line under this session's result.
+  const gw = await getGameWallet(tg(ctx)).catch(() => null);
+  const statsLine = gw
+    ? tr(
+        ctx,
+        `\n🔥 Лучшая серия: <b>${gw.bestStreak}</b>   🏆 За неделю: <b>${gw.weeklyCorrect}</b>`,
+        `\n🔥 Best streak: <b>${gw.bestStreak}</b>   🏆 This week: <b>${gw.weeklyCorrect}</b>`,
+      )
+    : "";
+
   await ctx.reply(
     tr(
       ctx,
-      `🏁 Игра завершена!\n📊 Результат: <b>${score}/${total}</b> (${pct}%)`,
-      `🏁 Game over!\n📊 Result: <b>${score}/${total}</b> (${pct}%)`,
+      `🏁 Игра завершена!\n📊 Результат: <b>${score}/${total}</b> (${pct}%)${statsLine}`,
+      `🏁 Game over!\n📊 Result: <b>${score}/${total}</b> (${pct}%)${statsLine}`,
     ),
     {
       parse_mode: "HTML",
       reply_markup: new InlineKeyboard()
         .text(tr(ctx, "🔄 Сыграть ещё", "🔄 Play again"), "wg:levels")
         .row()
+        .text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb")
         .text(tr(ctx, "🏠 Меню", "🏠 Menu"), "menu"),
     },
   );
+}
+
+// ── leaderboard ───────────────────────────────────────────────────────────────
+
+export async function showLeaderboard(ctx: BotContext): Promise<void> {
+  const rows = await getWeeklyLeaderboard(10).catch(() => []);
+  const me = tg(ctx);
+  const medals = ["🥇", "🥈", "🥉"];
+
+  const header = tr(ctx, "🏆 <b>Таблица лидеров недели</b>", "🏆 <b>Weekly leaderboard</b>");
+  let body: string;
+  if (!rows.length) {
+    body = tr(
+      ctx,
+      "Пока никто не набрал очков на этой неделе. Будь первым!",
+      "No scores yet this week. Be the first!",
+    );
+  } else {
+    body = rows
+      .map((r, i) => {
+        const rank = medals[i] ?? `${i + 1}.`;
+        const you = r.telegramId === me ? tr(ctx, " ← ты", " ← you") : "";
+        const name = escapeHtml(r.displayName);
+        return tr(
+          ctx,
+          `${rank} <b>${name}</b> — ${r.weeklyCorrect} верных (🔥 ${r.bestStreak})${you}`,
+          `${rank} <b>${name}</b> — ${r.weeklyCorrect} correct (🔥 ${r.bestStreak})${you}`,
+        );
+      })
+      .join("\n");
+  }
+
+  await ctx.reply(`${header}\n\n${body}`, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard()
+      .text(tr(ctx, "🎮 Играть", "🎮 Play"), "wg:levels")
+      .text(tr(ctx, "🏠 Меню", "🏠 Menu"), "menu"),
+  });
+}
+
+/** Minimal HTML escaping for a user-supplied display name. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

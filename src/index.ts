@@ -1,5 +1,6 @@
-import { Bot, session } from "grammy";
-import { config } from "./config.js";
+import { Bot, InlineKeyboard, session } from "grammy";
+import { config, hasWebapp } from "./config.js";
+import { startWebappServer } from "./webapp/server.js";
 import { t } from "./i18n.js";
 import { initialSession } from "./bot/context.js";
 import type { BotContext, SessionData } from "./bot/context.js";
@@ -144,6 +145,15 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
+/** Open the word game: launch the Mini App when configured, else the chat flow. */
+async function openWordGame(ctx: BotContext): Promise<void> {
+  if (!hasWebapp) return await wordGameCommand(ctx);
+  const prompt = ctx.session.lang === "ru" ? "🎮 Открой игру слов:" : "🎮 Open the word game:";
+  await ctx.reply(prompt, {
+    reply_markup: new InlineKeyboard().webApp(t(ctx.session.lang, "menu_wordgame"), config.webappUrl),
+  });
+}
+
 /** Send the user to wherever "home" is for them. */
 async function goHome(ctx: BotContext): Promise<void> {
   ctx.session.flow = undefined; // leaving any in-progress quiz/login
@@ -157,7 +167,7 @@ bot.command("start", startCommand);
 bot.command("menu", goHome);
 bot.command("language", showLanguagePicker);
 bot.command("learn", learnCommand);
-bot.command("wordgame", wordGameCommand);
+bot.command("wordgame", openWordGame);
 bot.command("leaderboard", showLeaderboard);
 bot.command("reminders", toggleReminders);
 bot.command("logout", logoutCommand);
@@ -209,7 +219,9 @@ bot.on("callback_query:data", async (ctx) => {
     }
 
     // ── Word game navigation ──
-    if (data === "wg:levels") return await showLevelMenu(ctx);
+    // When the Mini App is configured, the menu button opens it directly (web_app
+    // button), but a stale "wg:levels" callback can still arrive — route it to the app.
+    if (data === "wg:levels") return hasWebapp ? await openWordGame(ctx) : await showLevelMenu(ctx);
     if (data.startsWith("wg:lv:")) {
       const parts = data.split(":");  // wg:lv:<from>:<to>
       return await startGameLevel(ctx, parts[2] ?? "A1", parts[3] ?? "A2");
@@ -360,12 +372,30 @@ async function main(): Promise<void> {
     console.error("setMyCommands failed (continuing):", err);
   }
 
-  // Force the Menu button to show the command list (clears any old web-app menu
-  // button left over from a previous bot setup).
+  // Menu button: when the Mini App is configured, make it the prominent "Open" Web
+  // App button (the single launch button, like BotFather's own bot). Otherwise fall
+  // back to the command list (and clear any stale web-app button from a prior setup).
   try {
-    await bot.api.setChatMenuButton({ menu_button: { type: "commands" } });
+    await bot.api.setChatMenuButton({
+      menu_button: hasWebapp
+        ? { type: "web_app", text: "🎮 Play", web_app: { url: config.webappUrl } }
+        : { type: "commands" },
+    });
   } catch (err) {
     console.error("setChatMenuButton failed (continuing):", err);
+  }
+
+  // Word-game Mini App API (in-process, reuses the game logic). Stars crediting still
+  // flows through the bot's successful_payment handler below.
+  if (hasWebapp) {
+    try {
+      startWebappServer({
+        createInvoiceLink: (title, description, payload, prices) =>
+          bot.api.createInvoiceLink(title, description, payload, "", "XTR", prices),
+      });
+    } catch (err) {
+      console.error("Failed to start Mini App API (continuing without it):", err);
+    }
   }
 
   process.once("SIGINT", () => bot.stop());
