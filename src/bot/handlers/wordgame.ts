@@ -16,7 +16,6 @@ import {
 } from "../../tutor/pricing.js";
 import {
   getGameWallet,
-  peekGameRound,
   commitGameRound,
   creditGameRounds,
   recordGameAnswer,
@@ -165,9 +164,13 @@ async function runRound(ctx: BotContext): Promise<void> {
   const firstRound = flow.total === 0;
   let cancelHints = () => {};
   try {
-    // Is a round available? (peek only — we charge AFTER a successful round, so a
-    // failed generation never costs the student a round, and "Try again" is free.)
-    const canPlay = await peekGameRound(tg(ctx), GAME_FREE_ROUNDS, isAdmin(ctx));
+    // Read the wallet once: used for both the play-gate check and the cross-session
+    // recent-words list (so the model never repeats a word the student already saw,
+    // even after a /start that wipes the in-session usedWords list).
+    const gw = await getGameWallet(tg(ctx)).catch(() => null);
+    const canPlay =
+      isAdmin(ctx) ||
+      (gw ? gw.freeRoundsUsed < GAME_FREE_ROUNDS || gw.paidRoundsLeft > 0 : true);
     if (!canPlay) {
       await showGameBuyMenu(ctx, "out");
       return;
@@ -177,7 +180,10 @@ async function runRound(ctx: BotContext): Promise<void> {
     if (firstRound) cancelHints = startLoadingHints(ctx);
 
     const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
-    const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
+    // Merge persisted recent words with the current session list so the avoid-list
+    // survives /start and bot restarts — same approach as the webapp API server.
+    const avoid = [...(gw?.recentWords ?? []), ...flow.usedWords];
+    const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, avoid);
 
     if (!round) {
       cancelHints();
