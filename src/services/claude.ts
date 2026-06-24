@@ -1,14 +1,13 @@
-import { config, hasAnthropic, hasBedrock, hasClaudeAWS, hasDeepseek } from "../config.js";
-import { tokenCostUsd, DEEPSEEK_RATES, type TokenRates } from "../tutor/pricing.js";
+import { config, hasAnthropic, hasBedrock, hasClaudeAWS } from "../config.js";
+import { tokenCostUsd, type TokenRates } from "../tutor/pricing.js";
 
 /**
- * Client for talking to the tutor LLM (the /learn AI tutor and the word game).
- * Picks whichever backend is configured — DeepSeek (preferred: cheapest, served
- * over its Anthropic-compatible endpoint), Claude Platform on AWS, Amazon
+ * Client for talking to Claude (the /learn AI tutor and the word game), running on
+ * Haiku 4.5. Picks whichever backend is configured — Claude Platform on AWS, Amazon
  * Bedrock, or the direct Anthropic API — and returns the reply text plus the real
- * USD cost of the call (from the response usage, priced at that backend's rates),
- * so spend can be metered against the student's wallet. Raw fetch throughout, so
- * no SDK dependency (mirrors services/gemini.ts).
+ * USD cost of the call (from the response usage), so spend can be metered against
+ * the student's wallet. Raw fetch throughout, so no SDK dependency (mirrors
+ * services/gemini.ts).
  */
 
 /** A content block — plain text, or an image for vision (grounded picture tasks). */
@@ -157,36 +156,6 @@ function prependPrefill(r: ClaudeResult | null, prefill?: string): ClaudeResult 
   return r;
 }
 
-async function callDeepseek(opts: ClaudeCall): Promise<ClaudeResult | null> {
-  // DeepSeek's Anthropic-compatible endpoint. It IGNORES cache_control (no caching
-  // discount) and assistant prefill is not a documented feature there, so — like the
-  // AWS gateway — we send neither and DON'T call prependPrefill. The downstream JSON
-  // parsers (engine.ts, wordgame.ts) already tolerate a missing leading brace, and the
-  // tutor's per-turn "reply with JSON" reminder + 3-attempt retry keep output clean.
-  //
-  // CRUCIAL: v4-flash defaults to THINKING mode, which emits reasoning blocks (not the
-  // "text" blocks parseResult reads) and burns the whole max_tokens budget on a short
-  // call — producing an empty/unusable reply every time. Disable it: we want the fast,
-  // cheap non-thinking mode for both the tutor and the word game.
-  return postMessages(
-    "https://api.deepseek.com/anthropic/v1/messages",
-    {
-      "x-api-key": config.deepseekApiKey,
-      "content-type": "application/json",
-    },
-    {
-      model: opts.model ?? config.deepseekModel,
-      max_tokens: opts.maxTokens ?? 1024,
-      temperature: opts.temperature ?? 0.6,
-      thinking: { type: "disabled" },
-      system: opts.system,
-      messages: opts.messages,
-    },
-    "DeepSeek",
-    DEEPSEEK_RATES,
-  );
-}
-
 async function callBedrock(opts: ClaudeCall): Promise<ClaudeResult | null> {
   if (!config.bedrockModelId) {
     console.error("Bedrock is configured but BEDROCK_MODEL_ID is empty.");
@@ -265,14 +234,12 @@ async function callClaudeAWS(opts: ClaudeCall): Promise<ClaudeResult | null> {
   );
 }
 
-/**
- * Send a request to the tutor LLM. Claude is intentionally TURNED OFF (too
- * expensive) — DeepSeek is the only active backend. The callAnthropic/
- * callBedrock/callClaudeAWS functions above are kept (not deleted) so Claude can
- * be switched back on by re-adding it to this dispatch, but they are never reached
- * while a DeepSeek key is configured.
- */
+/** Send a request to whichever Claude backend is configured — Claude Platform on
+ *  AWS, Amazon Bedrock, or the direct Anthropic API. The model (Haiku 4.5) comes
+ *  from config.claudeModel. */
 export async function callClaude(opts: ClaudeCall): Promise<ClaudeResult | null> {
-  if (hasDeepseek) return callDeepseek(opts);
+  if (hasClaudeAWS) return callClaudeAWS(opts);
+  if (hasBedrock) return callBedrock(opts);
+  if (hasAnthropic) return callAnthropic(opts);
   return null;
 }

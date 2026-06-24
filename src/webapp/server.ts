@@ -3,7 +3,6 @@ import cors from "cors";
 import { config } from "../config.js";
 import { validateInitData, type WebAppUser } from "./auth.js";
 import { generateRound, GAME_LEVELS } from "../tutor/wordgame.js";
-import { synthesizeSpeech } from "../services/media.js";
 import {
   getGameWallet,
   commitGameRound,
@@ -290,28 +289,6 @@ export function startWebappServer(deps: WebappDeps): void {
 
   // On-demand pronunciation (one short TTS clip for a word). Charged tiny + only when
   // tapped; the frontend limits it to once per round.
-  app.get(
-    "/api/tts",
-    authed(async (req, res) => {
-      // Speaks any text: the English word (pronunciation) OR the native-language
-      // feedback (Gemini auto-detects language from the text). `word` kept for
-      // back-compat. Used only in opt-in voice mode.
-      const text = String((req.query.text ?? req.query.word ?? "") as string).slice(0, 400);
-      if (!text.trim()) {
-        res.status(400).json({ error: "no_text" });
-        return;
-      }
-      const ogg = await synthesizeSpeech(text).catch(() => null);
-      if (!ogg) {
-        res.status(503).json({ error: "tts_unavailable" });
-        return;
-      }
-      // Not charged: tiny, absorbed by the round's flat-rate margin.
-      res.setHeader("Content-Type", "audio/ogg");
-      res.send(Buffer.from(ogg));
-    }),
-  );
-
   // Final error guard.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     console.error("webapp API error:", err);

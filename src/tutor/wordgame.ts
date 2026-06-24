@@ -1,5 +1,4 @@
 import { callClaude } from "../services/claude.js";
-import { config } from "../config.js";
 
 /** CEFR level pairs available in the game. */
 export const GAME_LEVELS: { from: string; to: string; label: string }[] = [
@@ -21,6 +20,21 @@ export interface GameRound {
 }
 
 const SYSTEM = `You are an English vocabulary trainer generating word game rounds. Return ONLY valid JSON — no markdown, no code fences.`;
+
+/** Pull a JSON object out of a model reply, tolerating ```json fences and stray
+ *  prose (Haiku via the AWS gateway can't use the "{" prefill, so it sometimes
+ *  wraps JSON in a code block). Returns null if no parseable object is found. */
+function parseJsonObject<T>(raw: string): T | null {
+  const cleaned = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "");
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1)) as T;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Generate a round, then verify it with a cheap fast model. The verifier checks
@@ -78,23 +92,13 @@ async function verifyRound(
     maxTokens: 150,
     temperature: 0,
     prefill: "{",
-    model: config.deepseekVerifyModel,
   });
   if (!result) return { valid: true, costUsd: 0 }; // verifier down → don't block play
-  try {
-    const raw = result.text.trimStart();
-    const text = raw.startsWith("{") ? raw : "{" + raw;
-    const end = text.lastIndexOf("}");
-    const obj = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as {
-      correctIsSynonym?: boolean;
-      otherSynonyms?: unknown[];
-    };
-    const others = Array.isArray(obj.otherSynonyms) ? obj.otherSynonyms : [];
-    const valid = obj.correctIsSynonym === true && others.length === 0;
-    return { valid, costUsd: result.costUsd };
-  } catch {
-    return { valid: true, costUsd: result.costUsd }; // unparseable → keep the round
-  }
+  const obj = parseJsonObject<{ correctIsSynonym?: boolean; otherSynonyms?: unknown[] }>(result.text);
+  if (!obj) return { valid: true, costUsd: result.costUsd }; // unparseable → keep the round
+  const others = Array.isArray(obj.otherSynonyms) ? obj.otherSynonyms : [];
+  const valid = obj.correctIsSynonym === true && others.length === 0;
+  return { valid, costUsd: result.costUsd };
 }
 
 /** Generate a single candidate round (one LLM call). */
@@ -150,16 +154,7 @@ async function generateRoundOnce(
     explain?: string;
   }
 
-  let obj: RoundJSON | null = null;
-
-  try {
-    const raw = result.text.trimStart();
-    const text = raw.startsWith("{") ? raw : "{" + raw;
-    const end = text.lastIndexOf("}");
-    obj = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as RoundJSON;
-  } catch {
-    return null;
-  }
+  const obj = parseJsonObject<RoundJSON>(result.text);
 
   if (
     !obj?.word?.trim() ||

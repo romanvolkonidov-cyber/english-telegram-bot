@@ -405,10 +405,12 @@ export async function extractLearnedWords(
   });
   if (!result) return [];
   try {
-    const raw = result.text.trimStart();
-    const text = raw.startsWith("[") ? raw : "[" + raw;
-    const end = text.lastIndexOf("]");
-    const arr = JSON.parse(end !== -1 ? text.slice(0, end + 1) : text) as unknown;
+    // Tolerate ```json fences / prose (Haiku via the AWS gateway ignores the prefill).
+    const cleaned = result.text.replace(/```(?:json)?/gi, "").replace(/```/g, "");
+    const start = cleaned.indexOf("[");
+    const end = cleaned.lastIndexOf("]");
+    if (start === -1 || end <= start) return [];
+    const arr = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
     if (!Array.isArray(arr)) return [];
     return [...new Set(arr.map((x) => String(x).trim()).filter(Boolean))].slice(0, 20);
   } catch {

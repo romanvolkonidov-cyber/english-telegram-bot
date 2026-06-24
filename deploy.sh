@@ -12,9 +12,10 @@ LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH=(ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SERVER")
 cd "$LOCAL_DIR"
 
-# ── Word-game Mini App env ──────────────────────────────────────────────────────
+# ── Server env written on every deploy ──────────────────────────────────────────
 # These are written into the server's .env on every deploy (other keys like
-# BOT_TOKEN / DEEPSEEK are left untouched — .env is never rsynced). Edit here once.
+# BOT_TOKEN are left untouched — .env is never rsynced). Edit here once.
+CLAUDE_MODEL="claude-haiku-4-5-20251001"      # tutor + word game run on Haiku 4.5
 WEBAPP_URL="https://bot.wellversed.live"      # the HTTPS URL Telegram opens (Vercel)
 WEBAPP_API_DOMAIN="api.wellversed.live"        # public hostname for the API (Caddy serves it)
 WEBAPP_API_PORT="8081"                         # local port the in-process API listens on
@@ -48,7 +49,7 @@ echo "🔧 Ensuring Mini App env in server .env..."
 # Idempotently set just the web-app keys (replace each line if present, else append).
 # Local values are injected as env vars; the heredoc runs remotely and edits .env
 # in place — every other secret in .env is preserved.
-"${SSH[@]}" "WEBAPP_URL='$WEBAPP_URL' WEBAPP_API_PORT='$WEBAPP_API_PORT' ADMIN_TELEGRAM_IDS='$ADMIN_TELEGRAM_IDS' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'ENVSETUP'
+"${SSH[@]}" "CLAUDE_MODEL='$CLAUDE_MODEL' WEBAPP_URL='$WEBAPP_URL' WEBAPP_API_PORT='$WEBAPP_API_PORT' ADMIN_TELEGRAM_IDS='$ADMIN_TELEGRAM_IDS' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'ENVSETUP'
   set -e
   cd "$REMOTE_DIR"
   touch .env
@@ -58,11 +59,12 @@ echo "🔧 Ensuring Mini App env in server .env..."
     sed -i "/^${key}=/d" .env
     printf '%s=%s\n' "$key" "$val" >> .env
   }
+  set_kv CLAUDE_MODEL "$CLAUDE_MODEL"
   set_kv WEBAPP_URL "$WEBAPP_URL"
   set_kv WEBAPP_ORIGIN "$WEBAPP_URL"
   set_kv WEBAPP_API_PORT "$WEBAPP_API_PORT"
   set_kv ADMIN_TELEGRAM_IDS "$ADMIN_TELEGRAM_IDS"
-  echo "   set WEBAPP_URL=$WEBAPP_URL WEBAPP_API_PORT=$WEBAPP_API_PORT ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-(none)}"
+  echo "   set CLAUDE_MODEL=$CLAUDE_MODEL WEBAPP_URL=$WEBAPP_URL ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-(none)}"
 ENVSETUP
 
 # NOTE: HTTPS for the API ($WEBAPP_API_DOMAIN) is a ONE-TIME server setup, not part

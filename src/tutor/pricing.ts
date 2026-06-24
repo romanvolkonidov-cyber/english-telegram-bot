@@ -22,22 +22,12 @@ export interface TokenRates {
   cacheWrite: number;
 }
 
-/** Claude token prices — Sonnet 4.6. */
+/** Claude token prices — Haiku 4.5 (the model the tutor and word game run on). */
 const CLAUDE_RATES: TokenRates = {
-  input: 3 / 1_000_000,
-  output: 15 / 1_000_000,
-  cacheRead: 0.30 / 1_000_000,
-  cacheWrite: 3.75 / 1_000_000,
-};
-
-/** DeepSeek token prices — deepseek-v4-flash. No separate cache-write price, so a
- *  cache miss bills at the standard input rate (cacheWrite == input). Roughly 20×
- *  cheaper on input and 50×+ cheaper on output than Sonnet. */
-export const DEEPSEEK_RATES: TokenRates = {
-  input: 0.14 / 1_000_000,
-  output: 0.28 / 1_000_000,
-  cacheRead: 0.0028 / 1_000_000,
-  cacheWrite: 0.14 / 1_000_000,
+  input: 1 / 1_000_000,
+  output: 5 / 1_000_000,
+  cacheRead: 0.10 / 1_000_000,
+  cacheWrite: 1.25 / 1_000_000,
 };
 
 export interface ClaudeUsage {
@@ -73,7 +63,7 @@ export const MEDIA_COST_USD = {
 /** Expected cost of one typical lesson — used to display approximate lesson
  *  counts to students and to cap the free trial. Lessons are NOT hard-stopped
  *  at this value; actual spend varies and is reported after each lesson. */
-export const LESSON_BUDGET_USD = 0.10;
+export const LESSON_BUDGET_USD = 0.15;
 
 /** Give every new student ONE free lesson (best conversion hook). The free
  *  lesson is hard-capped at LESSON_BUDGET_USD so it can never run away, and is
@@ -98,13 +88,12 @@ export interface StarPackage {
   title: string;
 }
 
-// Both packs are priced at the same 10 ⭐/lesson; the big one is just a larger
-// bundle. allowanceUsd = lessons × LESSON_BUDGET_USD. With DeepSeek a real lesson
-// costs a fraction of the budget, so these advertised counts are the guaranteed
-// minimum — students typically get many more lessons per pack.
+// Both packs are priced at the same 15 ⭐/lesson; the big one is just a larger
+// bundle. allowanceUsd = lessons × LESSON_BUDGET_USD, and net revenue clears the
+// allowance by ≥25% (asserted at boot), so every sale is profitable on Haiku.
 export const PACKAGES: StarPackage[] = [
-  { id: "small", stars: 60, lessons: 6, allowanceUsd: 0.60, title: "6 уроков" },
-  { id: "pack", stars: 150, lessons: 15, allowanceUsd: 1.50, title: "15 уроков 🔥" },
+  { id: "small", stars: 60, lessons: 4, allowanceUsd: 0.60, title: "4 урока" },
+  { id: "pack", stars: 150, lessons: 10, allowanceUsd: 1.50, title: "10 уроков 🔥" },
 ];
 
 export function packageById(id: string): StarPackage | undefined {
@@ -165,12 +154,13 @@ for (const p of PACKAGES) {
 // pays Telegram.
 
 /**
- * Conservative estimate of one round's REAL API cost, now that the game is
- * text-only: ~$0.01 voice note (MEDIA_COST_USD.tts) + ~$0.0003 DeepSeek (two short
- * JSON calls: generate + verify), rounded up for safety. Metered live per round
- * for the profit reports — this constant only drives the boot guard below.
+ * Conservative estimate of one round's REAL API cost. The game is text-only (no
+ * image, no voice): two short Claude Haiku calls — generate + verify. At Haiku 4.5
+ * rates that's ~$0.003 typically (~$0.006 worst case if it regenerates once),
+ * rounded up for safety. Metered live per round for the profit reports — this
+ * constant only drives the boot guard below.
  */
-export const GAME_ROUND_COST_USD = 0.012;
+export const GAME_ROUND_COST_USD = 0.006;
 
 /** Profit we want on top of real expenses, as a fraction over cost. */
 export const GAME_TARGET_MARGIN = 0.25;

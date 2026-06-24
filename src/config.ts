@@ -45,22 +45,6 @@ export const config = {
   anthropicApiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
 
   /**
-   * DeepSeek key (env var DEEPSEEK). When set, it takes PRIORITY over every Claude
-   * backend for the tutor and word game — DeepSeek is far cheaper. It speaks the
-   * Anthropic Messages API via https://api.deepseek.com/anthropic, so the same
-   * request/response plumbing in services/claude.ts is reused unchanged.
-   */
-  deepseekApiKey: (process.env.DEEPSEEK || process.env.DEEPSEEK_API_KEY || "").trim(),
-
-  /** DeepSeek model for both the tutor and the word game. v4-flash is fast & cheap. */
-  deepseekModel: (process.env.DEEPSEEK_MODEL || "deepseek-v4-flash").trim(),
-
-  /** Stronger model used ONLY to verify each generated word-game round (accuracy
-   *  matters more than speed for this one short check). Defaults to v4-pro; if it's
-   *  unavailable the verifier fails open, so rounds still play. */
-  deepseekVerifyModel: (process.env.DEEPSEEK_VERIFY_MODEL || "deepseek-v4-pro").trim(),
-
-  /**
    * Telegram Mini App (the word game web app).
    * - webappUrl: the HTTPS URL Telegram opens (e.g. https://bot.wellversed.live). When
    *   set, the bot's menu button becomes an "Open" Web App button and the word-game
@@ -80,8 +64,9 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
 
-  /** Claude model used to teach (direct Anthropic API). */
-  claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
+  /** Claude model powering BOTH the tutor and the word game. Haiku 4.5 — fast and
+   *  inexpensive, good enough for these structured tasks. */
+  claudeModel: (process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001").trim(),
 
   /** Cheaper/faster model for simple checks (e.g. the word-game verification pass). */
   claudeFastModel: (process.env.CLAUDE_FAST_MODEL || "claude-haiku-4-5-20251001").trim(),
@@ -157,9 +142,6 @@ export const config = {
 
 export const hasGemini = config.geminiApiKey.length > 0;
 
-/** A DeepSeek key is configured (preferred backend — cheapest). */
-export const hasDeepseek = config.deepseekApiKey.length > 0;
-
 /** The word-game Mini App URL is configured (enables the Web App launch + API). */
 export const hasWebapp = config.webappUrl.length > 0;
 
@@ -173,12 +155,9 @@ export const hasBedrock = config.bedrockApiKey.length > 0;
 export const hasClaudeAWS =
   config.awsApiKey.length > 0 && config.awsWorkspaceId.length > 0;
 
-/**
- * The /learn AI tutor + word game run on DeepSeek only — Claude is turned off
- * (too expensive). hasAnthropic/hasBedrock/hasClaudeAWS are kept above so Claude
- * can be re-enabled later, but they no longer gate the tutor.
- */
-export const hasTutorLLM = hasDeepseek;
+/** The /learn AI tutor + word game run on Claude (Haiku 4.5) via whichever backend
+ *  is configured — Claude-on-AWS, Bedrock, or the direct Anthropic API. */
+export const hasTutorLLM = hasClaudeAWS || hasBedrock || hasAnthropic;
 
 /** Whether a dedicated tutor Firebase project is configured (vs. shared fallback). */
 export const hasTutorFirebase =

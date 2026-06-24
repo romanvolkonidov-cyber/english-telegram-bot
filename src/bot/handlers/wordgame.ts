@@ -1,7 +1,6 @@
-import { InlineKeyboard, InputFile } from "grammy";
+import { InlineKeyboard } from "grammy";
 import type { BotContext } from "../context.js";
 import { generateRound, GAME_LEVELS } from "../../tutor/wordgame.js";
-import { synthesizeSpeech } from "../../services/media.js";
 import { startLoadingHints } from "../loadingHints.js";
 import {
   GAME_FREE_ROUNDS,
@@ -13,7 +12,6 @@ import {
   GAME_CUSTOM_MAX_STARS,
   roundsForCustomStars,
   STAR_NET_USD,
-  MEDIA_COST_USD,
   gamePackageById,
 } from "../../tutor/pricing.js";
 import {
@@ -26,7 +24,6 @@ import {
   type GameMilestone,
 } from "../../tutor/wallet.js";
 import { notifyAdmins } from "../../services/adminNotify.js";
-import { hasGemini } from "../../config.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -171,15 +168,9 @@ async function runRound(ctx: BotContext): Promise<void> {
 
     const letter = (i: number) => String.fromCharCode(65 + i);
 
-    // We send a short pronunciation voice note AFTER the question (below) so the
-    // question appears immediately instead of waiting on TTS. Book its cost now
-    // (one flat ~$0.01 TTS call) when speech is available — pure audio, no LLM.
-    const willSpeak = hasGemini;
-    const voiceCostUsd = willSpeak ? MEDIA_COST_USD.tts : 0;
+    const roundCostUsd = round.costUsd; // text-only round (Claude); no voice, no image
 
-    const roundCostUsd = round.costUsd + voiceCostUsd;
-
-    // Round is good — now consume it and book its real cost (DeepSeek + any voice).
+    // Round is good — now consume it and book its real cost (the Claude calls).
     // Fire an admin profit report every N rounds played.
     const milestone = await commitGameRound(
       tg(ctx),
@@ -219,26 +210,6 @@ async function runRound(ctx: BotContext): Promise<void> {
     cancelHints(); // the question is ready — stop the "I'm running…" pics
     await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
     stopThinking(); // question is on screen — drop the "typing" indicator
-
-    // Now synthesize and send the pronunciation voice note — the question is
-    // already visible and answerable, so TTS latency no longer blocks the round.
-    // Show a "recording audio" indicator so the incoming voice is expected.
-    if (willSpeak) {
-      const stopRecording = keepThinking(ctx, "record_voice");
-      try {
-        const voiceScript =
-          `${round.word}. Which word means the same as ${round.word}? ` +
-          round.options.map((o, i) => `${letter(i)}: ${o}.`).join(" ");
-        const voiceOgg = await synthesizeSpeech(voiceScript).catch(() => null);
-        if (voiceOgg) {
-          await ctx.replyWithVoice(new InputFile(voiceOgg, "wordgame.ogg"));
-        }
-      } catch {
-        /* non-fatal — the round is fully playable without the audio */
-      } finally {
-        stopRecording();
-      }
-    }
   } finally {
     cancelHints(); // safety: clears any pending "I'm running…" pics on early return
     stopThinking(); // safety: clears the interval on any early return above
@@ -256,7 +227,7 @@ async function reportMilestone(ctx: BotContext, m: GameMilestone): Promise<void>
     title: `🎮 Game milestone — ${m.totalRounds} rounds played`,
     ctx,
     details:
-      `Last ${m.batchRounds} rounds cost: $${m.batchCostUsd.toFixed(4)} (real API, DeepSeek + voice)\n` +
+      `Last ${m.batchRounds} rounds cost: $${m.batchCostUsd.toFixed(4)} (real API, Claude Haiku)\n` +
       `Lifetime cost: $${m.lifetimeCostUsd.toFixed(4)}\n` +
       `Paid: ${m.lifetimeStarsPaid} ⭐ → net $${m.lifetimeNetUsd.toFixed(2)} (after Telegram + conversion)\n` +
       profitLine,

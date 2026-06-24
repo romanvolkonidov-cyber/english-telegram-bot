@@ -89,19 +89,3 @@ export const api = {
     req<{ invoiceLink: string }>("/api/buy", { method: "POST", body: JSON.stringify(body) }),
 };
 
-/** Fetch a spoken clip for any text (word or feedback, with auth) and play it.
- *  Returns false on failure (caller ignores — audio is best-effort). */
-export async function playTts(text: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${BASE}/api/tts?text=${encodeURIComponent(text)}`, { headers: authHeader() });
-    if (!res.ok) return false;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    await audio.play();
-    audio.onended = () => URL.revokeObjectURL(url);
-    return true;
-  } catch {
-    return false;
-  }
-}

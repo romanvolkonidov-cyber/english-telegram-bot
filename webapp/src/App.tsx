@@ -13,7 +13,6 @@ import {
 import {
   api,
   ApiError,
-  playTts,
   type AnswerResp,
   type Level,
   type LeaderRow,
@@ -45,17 +44,8 @@ export function App() {
   const [streak, setStreak] = useState(0);
   const [streakFlash, setStreakFlash] = useState<number | null>(null);
 
-  // Settings (persisted): subtle sound effects (default on) + opt-in voice (default off).
+  // Setting (persisted): subtle sound effects (default on).
   const [soundOn, setSoundOn] = useState<boolean>(soundEnabled());
-  const [voiceOn, setVoiceOn] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("wg_voice_on") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const voiceOnRef = useRef(voiceOn);
-  voiceOnRef.current = voiceOn;
 
   // Words served this session (avoid-list), kept in a ref so prefetch reads the
   // latest synchronously. The server ALSO persists recent words per player.
@@ -98,7 +88,6 @@ export function App() {
         setRound(r);
         usedWords.current = [...usedWords.current, r.word].slice(-40);
         setScreen("play");
-        if (voiceOnRef.current) void playTts(r.word);
       } catch (e) {
         if (e instanceof ApiError && e.status === 402) {
           await openShop("out");
@@ -169,7 +158,6 @@ export function App() {
         sfx.wrong();
         haptic.error();
       }
-      if (voiceOnRef.current) void playTts(a.explain); // read the feedback aloud
       if (level) prefetchNext(level); // warm up the next word while they read this one
     } catch {
       setPicked(null);
@@ -201,7 +189,6 @@ export function App() {
       setAnswer(null);
       setPicked(null);
       setScreen("play");
-      if (voiceOnRef.current) void playTts(pre.round.word);
       return;
     }
     // No prefetched round (it errored) → fetch on demand (shows the spinner).
@@ -220,17 +207,6 @@ export function App() {
     setSoundEnabled(v);
     if (v) sfx.tap(); // little confirmation blip when turning ON
   };
-  const toggleVoice = () => {
-    const v = !voiceOn;
-    setVoiceOn(v);
-    try {
-      localStorage.setItem("wg_voice_on", v ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-    haptic.tap();
-    sfx.tap();
-  };
   const corner = (
     <div className="corner">
       <button
@@ -240,14 +216,6 @@ export function App() {
         title={T("Звуки", "Sound effects")}
       >
         {soundOn ? "🔊" : "🔇"}
-      </button>
-      <button
-        className={`chip ${voiceOn ? "chip-on" : "chip-off"}`}
-        onClick={toggleVoice}
-        aria-label={T("Голос", "Voice")}
-        title={T("Озвучка слова и комментария", "Speak the word & feedback")}
-      >
-        🗣️
       </button>
     </div>
   );
@@ -408,9 +376,6 @@ export function App() {
             {round.word}
           </Title>
           {round.definition && <Caption className="muted">{round.definition}</Caption>}
-          <button className="speak" onClick={() => void playTts(round.word)} aria-label="play">
-            🔊
-          </button>
         </div>
 
         <Headline weight="2" className="prompt">
