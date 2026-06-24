@@ -25,7 +25,37 @@ import {
 } from "../../tutor/wallet.js";
 import { notifyAdmins } from "../../services/adminNotify.js";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── rich-message helper ───────────────────────────────────────────────────────
+
+/** Send a rich-markdown message (Grammy 1.44+), falling back to HTML then plain. */
+async function replyRich(
+  ctx: BotContext,
+  markdown: string,
+  keyboard?: InlineKeyboard,
+): Promise<void> {
+  if (!markdown.trim()) return;
+  try {
+    await ctx.replyWithRichMessage(
+      { markdown },
+      keyboard ? { reply_markup: keyboard } : {},
+    );
+    return;
+  } catch { /* fall through */ }
+  // HTML fallback — convert the subset of Markdown we use
+  const html = markdown
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/\*(.+?)\*/g, "<i>$1</i>")
+    .replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>")
+    .replace(/^&gt;\s?(.+)$/gm, "<blockquote>$1</blockquote>");
+  try {
+    await ctx.reply(html, { parse_mode: "HTML", reply_markup: keyboard });
+  } catch {
+    await ctx.reply(markdown, { reply_markup: keyboard }).catch(() => {});
+  }
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function tg(ctx: BotContext): string {
   return String(ctx.from?.id ?? "");
@@ -191,6 +221,7 @@ async function runRound(ctx: BotContext): Promise<void> {
     flow.currentOptions = round.options;
     flow.correctIndex = round.correctIndex;
     flow.currentExplain = round.explain;
+    flow.currentDistractorExplains = round.distractorExplains;
     flow.currentWord = round.word;
     flow.roundCostUsd = roundCostUsd;
 
@@ -203,12 +234,12 @@ async function runRound(ctx: BotContext): Promise<void> {
 
     const header = tr(
       ctx,
-      `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Какой синоним уровня <b>${flow.toLevel}</b> подходит лучше всего?`,
-      `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Which <b>${flow.toLevel}</b> synonym fits best?`,
+      `### 🔤 ${round.word}\n\n_${round.definition}_\n\n❓ Какой синоним уровня **${flow.toLevel}** подходит лучше всего?`,
+      `### 🔤 ${round.word}\n\n_${round.definition}_\n\n❓ Which **${flow.toLevel}** synonym fits best?`,
     );
 
     cancelHints(); // the question is ready — stop the "I'm running…" pics
-    await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
+    await replyRich(ctx, header, kb);
     stopThinking(); // question is on screen — drop the "typing" indicator
   } finally {
     cancelHints(); // safety: clears any pending "I'm running…" pics on early return
@@ -249,9 +280,11 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
   const correctIndex = flow.correctIndex;
   const options = flow.currentOptions ?? [];
   const currentExplain = flow.currentExplain;
+  const distractorExplains = flow.currentDistractorExplains ?? {};
   flow.currentOptions = undefined;
   flow.correctIndex = undefined;
   flow.currentExplain = undefined;
+  flow.currentDistractorExplains = undefined;
   flow.currentWord = undefined;
   flow.roundCostUsd = undefined;
 
@@ -273,24 +306,30 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
   const correctWord = options[correctIndex] ?? "";
 
   const verdict = correct
-    ? tr(ctx, `✅ Верно! <b>${chosenWord}</b> — это лучший синоним.`, `✅ Correct! <b>${chosenWord}</b> is the best synonym.`)
+    ? tr(ctx, `✅ Верно! **${chosenWord}** — это лучший синоним.`, `✅ Correct! **${chosenWord}** is the best synonym.`)
     : tr(
         ctx,
-        `❌ Не совсем. Твой ответ: <b>${chosenWord}</b>\n✅ Лучший синоним: <b>${correctWord}</b>`,
-        `❌ Not quite. You chose: <b>${chosenWord}</b>\n✅ Best synonym: <b>${correctWord}</b>`,
+        `❌ Не совсем. Ты выбрал: **${chosenWord}**\n✅ Лучший синоним: **${correctWord}**`,
+        `❌ Not quite. You chose: **${chosenWord}**\n✅ Best synonym: **${correctWord}**`,
       );
 
-  const explainLine = currentExplain ? `\n\n<i>${currentExplain}</i>` : "";
+  // When wrong: blockquote explaining why the chosen word doesn't fit, then why
+  // the correct answer does.
+  const wrongWord = correct ? "" : (options[optIndex] ?? "");
+  const wrongLine =
+    !correct && distractorExplains[wrongWord]
+      ? `\n\n>${distractorExplains[wrongWord]}`
+      : "";
+  const explainLine = currentExplain ? `\n\n>${currentExplain}` : "";
 
   const scoreInfo = tr(
     ctx,
-    `📊 Счёт: <b>${flow.score}/${flow.total}</b>`,
-    `📊 Score: <b>${flow.score}/${flow.total}</b>`,
+    `📊 Счёт: **${flow.score}/${flow.total}**`,
+    `📊 Score: **${flow.score}/${flow.total}**`,
   );
-  // A streak line once it's worth celebrating (2+ in a row).
   const streakLine =
     stats && stats.currentStreak >= 2
-      ? tr(ctx, `   🔥 Серия: <b>${stats.currentStreak}</b>`, `   🔥 Streak: <b>${stats.currentStreak}</b>`)
+      ? tr(ctx, `   🔥 Серия: **${stats.currentStreak}**`, `   🔥 Streak: **${stats.currentStreak}**`)
       : "";
 
   const kb = new InlineKeyboard()
@@ -299,10 +338,7 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     .text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb")
     .text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
 
-  await ctx.reply(`${verdict}${explainLine}\n\n${scoreInfo}${streakLine}`, {
-    parse_mode: "HTML",
-    reply_markup: kb,
-  });
+  await replyRich(ctx, `${verdict}${wrongLine}${explainLine}\n\n${scoreInfo}${streakLine}`, kb);
 }
 
 // ── buy menu ──────────────────────────────────────────────────────────────────

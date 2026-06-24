@@ -2,7 +2,7 @@ import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext, Flow } from "../context.js";
 import { startLoadingHints } from "../loadingHints.js";
 import { esc } from "../../util/format.js";
-import { config, hasTutorLLM, hasGemini } from "../../config.js";
+import { hasTutorLLM, hasGemini } from "../../config.js";
 import {
   getTopic,
   getLesson,
@@ -133,60 +133,24 @@ function renderTutorHtml(text: string): string {
   return out.join("\n");
 }
 
-// Whether Telegram's sendRichMessage is available for this bot (cached after the
-// first attempt; null = unknown, false = method not enabled → use HTML instead).
-let richMessageAvailable: boolean | null = null;
-
 /**
- * Try Telegram's new sendRichMessage (full Markdown: tables, headings, quotes,
- * details, etc.). Returns true if sent. Called via raw fetch since grammY has no
- * typed wrapper yet. Disables itself permanently if the method isn't enabled.
- */
-async function sendRichMarkdown(
-  ctx: BotContext,
-  markdown: string,
-  keyboard?: InlineKeyboard,
-): Promise<boolean> {
-  if (richMessageAvailable === false) return false;
-  const chatId = ctx.chat?.id;
-  if (!chatId || !markdown.trim()) return false;
-  try {
-    const body: Record<string, unknown> = {
-      chat_id: chatId,
-      rich_message: { markdown },
-    };
-    if (keyboard) body.reply_markup = { inline_keyboard: keyboard.inline_keyboard };
-    const res = await fetch(`https://api.telegram.org/bot${config.botToken}/sendRichMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as { ok: boolean; error_code?: number; description?: string };
-    if (data.ok) {
-      richMessageAvailable = true;
-      return true;
-    }
-    // Method not found / not enabled → stop trying for the rest of the process.
-    const desc = (data.description || "").toLowerCase();
-    if (data.error_code === 404 || desc.includes("not found") || desc.includes("unknown")) {
-      richMessageAvailable = false;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Send a tutor message with formatting. Prefer Telegram rich messages (native
- * tables/headings/quotes); fall back to parse_mode HTML, then plain text.
+ * Send a tutor message with rich formatting (Grammy 1.44+ typed API).
+ * Falls back to parse_mode HTML (with inline-markdown → HTML conversion) then
+ * to plain text so the lesson is never silently lost.
  */
 async function replyRich(
   ctx: BotContext,
   text: string,
   keyboard?: InlineKeyboard,
 ): Promise<void> {
-  if (await sendRichMarkdown(ctx, text, keyboard)) return;
+  if (!text.trim()) return;
+  try {
+    await ctx.replyWithRichMessage(
+      { markdown: text },
+      keyboard ? { reply_markup: keyboard } : {},
+    );
+    return;
+  } catch { /* fall through */ }
   try {
     await ctx.reply(renderTutorHtml(text), {
       parse_mode: "HTML",
@@ -194,11 +158,7 @@ async function replyRich(
       reply_markup: keyboard,
     });
   } catch {
-    try {
-      await ctx.reply(text, { reply_markup: keyboard });
-    } catch {
-      /* ignore */
-    }
+    try { await ctx.reply(text, { reply_markup: keyboard }); } catch { /* ignore */ }
   }
 }
 
@@ -1045,13 +1005,14 @@ export async function tutorQuizAnswer(ctx: BotContext, optIndex: number): Promis
   const chosen = quiz.options[optIndex] ?? "";
   const right = quiz.options[quiz.correctIndex] ?? "";
   const verdict = correct
-    ? tr(ctx, `✅ Верно: ${chosen}`, `✅ Correct: ${chosen}`)
+    ? tr(ctx, `✅ Верно: **${chosen}**`, `✅ Correct: **${chosen}**`)
     : tr(
         ctx,
-        `❌ Твой ответ: ${chosen}\n✅ Правильно: ${right}`,
-        `❌ You chose: ${chosen}\n✅ Answer: ${right}`,
+        `❌ Твой ответ: **${chosen}**\n✅ Правильно: **${right}**`,
+        `❌ You chose: **${chosen}**\n✅ Answer: **${right}**`,
       );
-  await ctx.reply(quiz.explain ? `${verdict}\n\n${quiz.explain}` : verdict);
+  const explainMd = quiz.explain ? `\n\n>${quiz.explain}` : "";
+  await replyRich(ctx, `${verdict}${explainMd}`);
 
   flow.pendingQuiz = null;
   flow.awaiting = "none";

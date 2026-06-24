@@ -39,6 +39,7 @@ export type Flow =
       currentOptions?: string[];
       correctIndex?: number;
       currentExplain?: string;
+      currentDistractorExplains?: Record<string, string>;
       currentWord?: string;
       roundCostUsd?: number;
       /** True while a round is being generated — blocks double-tap re-entry. */
