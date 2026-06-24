@@ -1,30 +1,25 @@
 import { InlineKeyboard, InputFile } from "grammy";
 import type { BotContext } from "../context.js";
 import { generateRound, GAME_LEVELS } from "../../tutor/wordgame.js";
-import { generateImage, synthesizeSpeech } from "../../services/media.js";
-import { startLoadingHints } from "../loadingHints.js";
-import { getCachedImageFileId, cacheImageFileId } from "../../tutor/gameImages.js";
-import { MEDIA_COST_USD } from "../../tutor/pricing.js";
 import {
   GAME_FREE_ROUNDS,
   GAME_STARS_PER_ROUND,
-  GAME_REPORT_EVERY_ROUNDS,
   GAME_PACKAGES,
+  GAME_ROUND_COST_USD,
+  GAME_CUSTOM_STARS_PER_ROUND,
+  GAME_CUSTOM_MIN_STARS,
+  GAME_CUSTOM_MAX_STARS,
+  roundsForCustomStars,
   STAR_NET_USD,
   gamePackageById,
-  gameStarsPerRound,
 } from "../../tutor/pricing.js";
 import {
   getGameWallet,
-  peekGameRound,
-  commitGameRound,
+  consumeGameRound,
   creditGameRounds,
-  recordGameAnswer,
-  getWeeklyLeaderboard,
-  type GameMilestone,
 } from "../../tutor/wallet.js";
 import { notifyAdmins } from "../../services/adminNotify.js";
-import { config, hasGemini } from "../../config.js";
+import { config } from "../../config.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,18 +35,6 @@ function tr(ctx: BotContext, ru: string, en: string): string {
   return ctx.session.lang === "en" ? en : ru;
 }
 
-/** Keep a chat action ("typing" / "record_voice") visible across a long task —
- *  Telegram actions expire after ~5 s, so a single send vanishes while we generate
- *  and the player thinks the bot froze. Re-sends every 4 s; returns a stop fn. */
-function keepThinking(
-  ctx: BotContext,
-  action: Parameters<typeof ctx.replyWithChatAction>[0] = "typing",
-): () => void {
-  ctx.replyWithChatAction(action).catch(() => {});
-  const id = setInterval(() => ctx.replyWithChatAction(action).catch(() => {}), 4000);
-  return () => clearInterval(id);
-}
-
 // ── entry: /wordgame command or "wg" menu button ──────────────────────────────
 
 export async function wordGameCommand(ctx: BotContext): Promise<void> {
@@ -64,7 +47,6 @@ export async function showLevelMenu(ctx: BotContext): Promise<void> {
   for (const lv of GAME_LEVELS) {
     kb.text(`${lv.label}`, `wg:lv:${lv.from}:${lv.to}`).row();
   }
-  kb.text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb").row();
   kb.text(tr(ctx, "⬅️ Меню", "⬅️ Menu"), "menu");
 
   const gw = await getGameWallet(tg(ctx)).catch(() => null);
@@ -94,13 +76,6 @@ export async function startGameLevel(
   fromLevel: string,
   toLevel: string,
 ): Promise<void> {
-  // If we're already mid-generation on a freshly-started game, ignore a second
-  // level tap (mashing the level menu mustn't spin up parallel games).
-  if (ctx.session.flow?.kind === "wordgame" && ctx.session.flow.busy) return;
-  // Lock the level-menu buttons so re-tapping them does nothing.
-  try {
-    await ctx.editMessageReplyMarkup();
-  } catch { /* ignore */ }
   ctx.session.flow = {
     kind: "wordgame",
     fromLevel,
@@ -114,188 +89,72 @@ export async function startGameLevel(
 
 // ── generate and show one round ───────────────────────────────────────────────
 
-export async function nextGameRound(ctx: BotContext): Promise<void> {
-  await runRound(ctx);
-}
-
 async function runRound(ctx: BotContext): Promise<void> {
   const flow = ctx.session.flow?.kind === "wordgame" ? ctx.session.flow : null;
   if (!flow) return;
 
-  // Double-tap guard: ignore a repeat "Next word" while one is still generating,
-  // OR while a question is already on screen waiting to be answered (a nervous
-  // re-tap must not generate or charge a second round).
-  if (flow.busy || flow.correctIndex !== undefined) return;
-  flow.busy = true;
-  // Keep a "typing" indicator alive through generation+verification+image so the
-  // player never sees the bot go silent. Stopped once the question is on screen;
-  // the outer finally guarantees cleanup on any early return.
-  let stopThinking = () => {};
-  // "I'm running to you…" pics if the FIRST round is slow (first turn does the most
-  // work). Cancelled the moment the question is ready.
-  const firstRound = flow.total === 0;
-  let cancelHints = () => {};
-  try {
-    // Is a round available? (peek only — we charge AFTER a successful round, so a
-    // failed generation never costs the student a round, and "Try again" is free.)
-    const canPlay = await peekGameRound(tg(ctx), GAME_FREE_ROUNDS, isAdmin(ctx));
-    if (!canPlay) {
-      await showGameBuyMenu(ctx, "out");
-      return;
-    }
-
-    stopThinking = keepThinking(ctx, "typing");
-    if (firstRound) cancelHints = startLoadingHints(ctx);
-
-    const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
-    const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
-
-    if (!round) {
-      cancelHints();
-      await ctx.reply(
-        tr(
-          ctx,
-          "⏳ Небольшая заминка на стороне ИИ — он сейчас перегружен, обычно это быстро проходит. Попробуй ещё раз (это бесплатно).",
-          "⏳ A brief hiccup on the AI's side — it's momentarily overloaded and usually recovers quickly. Try again (this is free).",
-        ),
-        {
-          reply_markup: new InlineKeyboard()
-            .text(tr(ctx, "🔄 Ещё раз", "🔄 Try again"), "wg:retry")
-            .text(tr(ctx, "⬅️ Уровни", "⬅️ Levels"), "wg:levels"),
-        },
-      );
-      return;
-    }
-
-    // Resolve the picture. Reuse a cached one for this word when we have it (free,
-    // instant) — otherwise generate a fresh photo and pay the image cost ONCE; we
-    // cache its file_id below so the next student to get this word reuses it.
-    const cachedFileId = await getCachedImageFileId(round.word);
-    let freshImage: { bytes: Uint8Array; mimeType: string } | null = null;
-    let imageCostUsd = 0;
-    if (!cachedFileId) {
-      freshImage = await generateImage(round.imagePrompt, { style: "photo" }).catch(() => null);
-      if (freshImage) imageCostUsd = MEDIA_COST_USD.image;
-    }
-
-    const letter = (i: number) => String.fromCharCode(65 + i);
-
-    // We send a short pronunciation voice note AFTER the question (below) so the
-    // question appears immediately instead of waiting on TTS. Book its cost now
-    // (one flat ~$0.01 TTS call) when speech is available — pure audio, no LLM.
-    const willSpeak = hasGemini;
-    const voiceCostUsd = willSpeak ? MEDIA_COST_USD.tts : 0;
-
-    const roundCostUsd = round.costUsd + imageCostUsd + voiceCostUsd;
-
-    // Round is good — now consume it and book its real cost (Claude + any image we
-    // generated + any voice). Fire an admin profit report every N rounds played.
-    const milestone = await commitGameRound(
-      tg(ctx),
-      roundCostUsd,
-      GAME_FREE_ROUNDS,
-      isAdmin(ctx),
-      GAME_REPORT_EVERY_ROUNDS,
-    ).catch(() => null);
-    if (milestone) await reportMilestone(ctx, milestone);
-
-    // Track used words (cap the list so the persisted session can't grow forever).
-    flow.usedWords.push(round.word);
-    if (flow.usedWords.length > 60) flow.usedWords = flow.usedWords.slice(-60);
-    flow.total += 1;
-
-    // Store current round in flow for the answer handler.
-    flow.currentOptions = round.options;
-    flow.correctIndex = round.correctIndex;
-    flow.currentExplain = round.explain;
-    flow.currentWord = round.word;
-    flow.roundCostUsd = roundCostUsd;
-
-    // Build options keyboard.
-    const kb = new InlineKeyboard();
-    round.options.forEach((opt, i) => {
-      kb.text(`${letter(i)}. ${opt}`, `wg:ans:${i}`).row();
-    });
-    kb.text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
-
-    const header = tr(
-      ctx,
-      `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Какой синоним уровня <b>${flow.toLevel}</b> подходит лучше всего?`,
-      `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Which <b>${flow.toLevel}</b> synonym fits best?`,
-    );
-    const captionOpts = { caption: header, parse_mode: "HTML" as const, reply_markup: kb };
-
-    cancelHints(); // the question is ready — stop the "I'm running…" pics
-
-    // Photo + question in ONE message so the answer buttons attach to the picture.
-    // (No early return — we still send the voice note afterwards.)
-    let photoSent = false;
-    if (cachedFileId) {
-      try {
-        await ctx.replyWithPhoto(cachedFileId, captionOpts);
-        photoSent = true;
-      } catch {
-        /* a stale file_id can fail — fall through to text rather than block play */
-      }
-    } else if (freshImage) {
-      const ext = freshImage.mimeType.includes("jpeg") ? "jpg" : "png";
-      try {
-        const sent = await ctx.replyWithPhoto(
-          new InputFile(Buffer.from(freshImage.bytes), `word.${ext}`),
-          captionOpts,
-        );
-        photoSent = true;
-        // Remember Telegram's file_id so this word's image is free from now on.
-        const fileId = sent.photo?.[sent.photo.length - 1]?.file_id;
-        if (fileId) await cacheImageFileId(round.word, fileId);
-      } catch {
-        /* photo send failed — fall through to a text-only round */
-      }
-    }
-    if (!photoSent) await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
-    stopThinking(); // question is on screen — drop the "typing" indicator
-
-    // Now synthesize and send the pronunciation voice note — the question is
-    // already visible and answerable, so TTS latency no longer blocks the round.
-    // Show a "recording audio" indicator so the incoming voice is expected.
-    if (willSpeak) {
-      const stopRecording = keepThinking(ctx, "record_voice");
-      try {
-        const voiceScript =
-          `${round.word}. Which word means the same as ${round.word}? ` +
-          round.options.map((o, i) => `${letter(i)}: ${o}.`).join(" ");
-        const voiceOgg = await synthesizeSpeech(voiceScript).catch(() => null);
-        if (voiceOgg) {
-          await ctx.replyWithVoice(new InputFile(voiceOgg, "wordgame.ogg"));
-        }
-      } catch {
-        /* non-fatal — the round is fully playable without the audio */
-      } finally {
-        stopRecording();
-      }
-    }
-  } finally {
-    cancelHints(); // safety: clears any pending "I'm running…" pics on early return
-    stopThinking(); // safety: clears the interval on any early return above
-    flow.busy = false;
+  // Check balance before spending an API call.
+  const canPlay = await consumeGameRound(tg(ctx), GAME_FREE_ROUNDS, isAdmin(ctx));
+  if (!canPlay) {
+    await showGameBuyMenu(ctx, "out");
+    return;
   }
-}
 
-/** Send the admin profit report for a student's N-round milestone. */
-async function reportMilestone(ctx: BotContext, m: GameMilestone): Promise<void> {
-  const onTrial = m.lifetimeStarsPaid === 0;
-  const profitLine = onTrial
-    ? `🎁 Free-trial cost so far: −$${m.lifetimeCostUsd.toFixed(4)} (no purchase yet)`
-    : `${m.lifetimeProfitUsd >= 0 ? "🟢" : "🔴"} Profit (lifetime): ${m.lifetimeProfitUsd >= 0 ? "+" : ""}$${m.lifetimeProfitUsd.toFixed(2)}`;
-  await notifyAdmins(ctx.api, {
-    title: `🎮 Game milestone — ${m.totalRounds} rounds played`,
+  await ctx.replyWithChatAction("typing");
+
+  const nativeLang = ctx.session.lang === "en" ? "English" : "Russian";
+  const round = await generateRound(flow.fromLevel, flow.toLevel, nativeLang, flow.usedWords);
+
+  if (!round) {
+    await ctx.reply(
+      tr(
+        ctx,
+        "⏳ Не удалось сгенерировать раунд — попробуй ещё раз.",
+        "⏳ Couldn't generate a round — please try again.",
+      ),
+      {
+        reply_markup: new InlineKeyboard()
+          .text(tr(ctx, "🔄 Ещё раз", "🔄 Try again"), "wg:retry")
+          .text(tr(ctx, "⬅️ Уровни", "⬅️ Levels"), "wg:levels"),
+      },
+    );
+    return;
+  }
+
+  // Track used words to avoid repetition.
+  flow.usedWords.push(round.word);
+  flow.total += 1;
+
+  // Store current round in flow for the answer handler.
+  flow.currentOptions = round.options;
+  flow.correctIndex = round.correctIndex;
+  flow.currentExplain = round.explain;
+  flow.currentWord = round.word;
+  flow.roundCostUsd = round.costUsd;
+
+  // Send image if available.
+  if (round.image) {
+    const ext = round.image.mimeType.includes("jpeg") ? "jpg" : "png";
+    try {
+      await ctx.replyWithPhoto(new InputFile(Buffer.from(round.image.bytes), `word.${ext}`));
+    } catch {
+      /* non-fatal — continue without image */
+    }
+  }
+
+  // Build options keyboard.
+  const kb = new InlineKeyboard();
+  round.options.forEach((opt, i) => {
+    kb.text(`${String.fromCharCode(65 + i)}. ${opt}`, `wg:ans:${i}`).row();
+  });
+  kb.text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
+
+  const header = tr(
     ctx,
-    details:
-      `Last ${m.batchRounds} rounds cost: $${m.batchCostUsd.toFixed(4)} (real API, Claude+image)\n` +
-      `Lifetime cost: $${m.lifetimeCostUsd.toFixed(4)}\n` +
-      `Paid: ${m.lifetimeStarsPaid} ⭐ → net $${m.lifetimeNetUsd.toFixed(2)} (after Telegram + conversion)\n` +
-      profitLine,
-  }).catch(() => {});
+    `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Какой синоним уровня <b>${flow.toLevel}</b> подходит лучше всего?`,
+    `🔤 <b>${round.word}</b>   <i>${round.definition}</i>\n\n❓ Which <b>${flow.toLevel}</b> synonym fits best?`,
+  );
+  await ctx.reply(header, { parse_mode: "HTML", reply_markup: kb });
 }
 
 // ── answer handler ────────────────────────────────────────────────────────────
@@ -307,18 +166,6 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     return;
   }
 
-  // Single-shot: snapshot the round and clear it IMMEDIATELY, so a second tap (a
-  // nervous double-press on the options) sees no pending question and bails above —
-  // no double-scoring, no double follow-up.
-  const correctIndex = flow.correctIndex;
-  const options = flow.currentOptions ?? [];
-  const currentExplain = flow.currentExplain;
-  flow.currentOptions = undefined;
-  flow.correctIndex = undefined;
-  flow.currentExplain = undefined;
-  flow.currentWord = undefined;
-  flow.roundCostUsd = undefined;
-
   await ctx.answerCallbackQuery();
 
   // Lock the buttons.
@@ -326,15 +173,11 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
     await ctx.editMessageReplyMarkup();
   } catch { /* ignore */ }
 
-  const correct = optIndex === correctIndex;
+  const correct = optIndex === flow.correctIndex;
   if (correct) flow.score += 1;
 
-  // Persist the outcome (lifetime totals, streak, weekly leaderboard counter).
-  const displayName = ctx.session.name ?? ctx.from?.first_name ?? "Player";
-  const stats = await recordGameAnswer(tg(ctx), correct, displayName).catch(() => null);
-
-  const chosenWord = options[optIndex] ?? "";
-  const correctWord = options[correctIndex] ?? "";
+  const chosenWord = flow.currentOptions?.[optIndex] ?? "";
+  const correctWord = flow.currentOptions?.[flow.correctIndex] ?? "";
 
   const verdict = correct
     ? tr(ctx, `✅ Верно! <b>${chosenWord}</b> — это лучший синоним.`, `✅ Correct! <b>${chosenWord}</b> is the best synonym.`)
@@ -344,26 +187,39 @@ export async function wordGameAnswer(ctx: BotContext, optIndex: number): Promise
         `❌ Not quite. You chose: <b>${chosenWord}</b>\n✅ Best synonym: <b>${correctWord}</b>`,
       );
 
-  const explainLine = currentExplain ? `\n\n<i>${currentExplain}</i>` : "";
+  const explainLine = flow.currentExplain
+    ? `\n\n<i>${flow.currentExplain}</i>`
+    : "";
+
+  // Admin cost reporting.
+  if (isAdmin(ctx)) {
+    const costUsd = flow.roundCostUsd ?? GAME_ROUND_COST_USD;
+    const netUsd = GAME_STARS_PER_ROUND * STAR_NET_USD;
+    const profit = netUsd - costUsd;
+    await ctx.reply(
+      `💸 Round cost $${costUsd.toFixed(4)} | net $${netUsd.toFixed(4)} | P&L ${profit >= 0 ? "+" : ""}$${profit.toFixed(4)}`,
+    ).catch(() => {});
+  }
+
+  // Clear round state.
+  flow.currentOptions = undefined;
+  flow.correctIndex = undefined;
+  flow.currentExplain = undefined;
+  flow.currentWord = undefined;
+  flow.roundCostUsd = undefined;
 
   const scoreInfo = tr(
     ctx,
     `📊 Счёт: <b>${flow.score}/${flow.total}</b>`,
     `📊 Score: <b>${flow.score}/${flow.total}</b>`,
   );
-  // A streak line once it's worth celebrating (2+ in a row).
-  const streakLine =
-    stats && stats.currentStreak >= 2
-      ? tr(ctx, `   🔥 Серия: <b>${stats.currentStreak}</b>`, `   🔥 Streak: <b>${stats.currentStreak}</b>`)
-      : "";
 
   const kb = new InlineKeyboard()
     .text(tr(ctx, "▶️ Следующее слово", "▶️ Next word"), "wg:next")
     .row()
-    .text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb")
     .text(tr(ctx, "⏹ Завершить", "⏹ End game"), "wg:end");
 
-  await ctx.reply(`${verdict}${explainLine}\n\n${scoreInfo}${streakLine}`, {
+  await ctx.reply(`${verdict}${explainLine}\n\n${scoreInfo}`, {
     parse_mode: "HTML",
     reply_markup: kb,
   });
@@ -385,7 +241,7 @@ export async function showGameBuyMenu(ctx: BotContext, reason: "out" | "menu"): 
   const lines = [lead, ""];
   const kb = new InlineKeyboard();
   for (const p of GAME_PACKAGES) {
-    const perRound = gameStarsPerRound(p);
+    const perRound = Math.round(p.stars / p.rounds);
     lines.push(
       tr(
         ctx,
@@ -393,8 +249,16 @@ export async function showGameBuyMenu(ctx: BotContext, reason: "out" | "menu"): 
         `• <b>${p.title}</b> — ${p.stars} ⭐  (${perRound} ⭐/round)`,
       ),
     );
-    kb.text(tr(ctx, `🎮 ${p.rounds} раундов · ${p.stars} ⭐`, `🎮 ${p.rounds} rounds · ${p.stars} ⭐`), `wg:buy:${p.id}`).row();
+    kb.text(`🎮 ${p.rounds} раундов · ${p.stars} ⭐`, `wg:buy:${p.id}`).row();
   }
+  lines.push(
+    tr(
+      ctx,
+      `• <b>Своя сумма</b> — ${GAME_CUSTOM_STARS_PER_ROUND} ⭐/раунд`,
+      `• <b>Custom amount</b> — ${GAME_CUSTOM_STARS_PER_ROUND} ⭐/round`,
+    ),
+  );
+  kb.text(tr(ctx, "✏️ Своя сумма", "✏️ Custom amount"), "wg:custom").row();
   kb.text(tr(ctx, "⬅️ Меню", "⬅️ Menu"), "menu");
 
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: kb });
@@ -402,42 +266,110 @@ export async function showGameBuyMenu(ctx: BotContext, reason: "out" | "menu"): 
 
 // ── Stars invoice for game rounds ─────────────────────────────────────────────
 
-export async function startGamePurchase(ctx: BotContext, pkgId: string): Promise<void> {
-  const pkg = gamePackageById(pkgId);
+/** Send a Telegram Stars invoice for `stars` ⭐. Shared by package and custom buys. */
+async function sendGameInvoice(
+  ctx: BotContext,
+  title: string,
+  description: string,
+  payload: string,
+  stars: number,
+  label: string,
+): Promise<void> {
   const chatId = ctx.chat?.id;
-  if (!pkg || !chatId) return;
+  if (!chatId) return;
   try {
-    await ctx.api.sendInvoice(
-      chatId,
-      tr(ctx, `Игра слов — ${pkg.title}`, `Word Game — ${pkg.title}`),
-      tr(
-        ctx,
-        `${pkg.rounds} раундов игры слов`,
-        `${pkg.rounds} word game rounds`,
-      ),
-      `wg_pay:${pkgId}`,
-      "XTR",
-      [{ label: pkg.title, amount: pkg.stars }],
-    );
+    await ctx.api.sendInvoice(chatId, title, description, payload, "XTR", [
+      { label, amount: stars },
+    ]);
   } catch (err) {
     console.error("Game invoice failed:", err);
     await ctx.reply(tr(ctx, "Не удалось выставить счёт.", "Could not create invoice."));
   }
 }
 
-export async function handleGamePayment(ctx: BotContext): Promise<void> {
-  const payload = ctx.message?.successful_payment?.invoice_payload ?? "";
-  if (!payload.startsWith("wg_pay:")) return;
-  const pkgId = payload.slice("wg_pay:".length);
+export async function startGamePurchase(ctx: BotContext, pkgId: string): Promise<void> {
   const pkg = gamePackageById(pkgId);
   if (!pkg) return;
-  await creditGameRounds(tg(ctx), pkg.rounds, pkg.stars).catch(() => {});
+  await sendGameInvoice(
+    ctx,
+    tr(ctx, `Игра слов — ${pkg.title}`, `Word Game — ${pkg.title}`),
+    tr(ctx, `${pkg.rounds} раундов игры слов`, `${pkg.rounds} word game rounds`),
+    `wg_pay:${pkgId}`,
+    pkg.stars,
+    pkg.title,
+  );
+}
+
+/** Ask the student to type how many Stars they want to spend (custom top-up). */
+export async function promptCustomGameAmount(ctx: BotContext): Promise<void> {
+  ctx.session.flow = { kind: "wgbuy" };
+  await ctx.reply(
+    tr(
+      ctx,
+      `✏️ Сколько ⭐ хочешь потратить?\nНапиши число от <b>${GAME_CUSTOM_MIN_STARS}</b> до <b>${GAME_CUSTOM_MAX_STARS}</b>.\nКурс: <b>${GAME_CUSTOM_STARS_PER_ROUND} ⭐ = 1 раунд</b>.`,
+      `✏️ How many ⭐ do you want to spend?\nSend a number between <b>${GAME_CUSTOM_MIN_STARS}</b> and <b>${GAME_CUSTOM_MAX_STARS}</b>.\nRate: <b>${GAME_CUSTOM_STARS_PER_ROUND} ⭐ = 1 round</b>.`,
+    ),
+    { parse_mode: "HTML" },
+  );
+}
+
+/** Handle the number the student typed for a custom top-up, then invoice it. */
+export async function gameCustomOnText(ctx: BotContext, text: string): Promise<void> {
+  const raw = text.trim();
+  const stars = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : NaN;
+  if (!Number.isInteger(stars) || stars < GAME_CUSTOM_MIN_STARS || stars > GAME_CUSTOM_MAX_STARS) {
+    // Keep the flow so the next message is treated as another attempt.
+    await ctx.reply(
+      tr(
+        ctx,
+        `⚠️ Введи целое число ⭐ от ${GAME_CUSTOM_MIN_STARS} до ${GAME_CUSTOM_MAX_STARS}.`,
+        `⚠️ Enter a whole number of ⭐ between ${GAME_CUSTOM_MIN_STARS} and ${GAME_CUSTOM_MAX_STARS}.`,
+      ),
+    );
+    return;
+  }
+  const rounds = roundsForCustomStars(stars);
+  ctx.session.flow = undefined;
+  await sendGameInvoice(
+    ctx,
+    tr(ctx, `Игра слов — ${rounds} раундов`, `Word Game — ${rounds} rounds`),
+    tr(ctx, `${rounds} раундов за ${stars} ⭐`, `${rounds} rounds for ${stars} ⭐`),
+    `wg_pay:c:${rounds}`,
+    stars,
+    tr(ctx, `${rounds} раундов`, `${rounds} rounds`),
+  );
+}
+
+export async function handleGamePayment(ctx: BotContext): Promise<void> {
+  const sp = ctx.message?.successful_payment;
+  const payload = sp?.invoice_payload ?? "";
+  if (!payload.startsWith("wg_pay:")) return;
+
+  let rounds: number;
+  let stars: number;
+  let reportLabel: string;
+
+  if (payload.startsWith("wg_pay:c:")) {
+    // Custom top-up: rounds encoded in the payload, Stars come from the payment.
+    rounds = Number.parseInt(payload.slice("wg_pay:c:".length), 10);
+    stars = sp?.total_amount ?? rounds * GAME_CUSTOM_STARS_PER_ROUND;
+    reportLabel = `custom ${rounds} rounds`;
+  } else {
+    const pkg = gamePackageById(payload.slice("wg_pay:".length));
+    if (!pkg) return;
+    rounds = pkg.rounds;
+    stars = pkg.stars;
+    reportLabel = pkg.title;
+  }
+  if (!Number.isInteger(rounds) || rounds <= 0) return;
+
+  await creditGameRounds(tg(ctx), rounds, stars).catch(() => {});
   const name = ctx.session.name ?? ctx.from?.first_name ?? "Player";
   await ctx.reply(
     tr(
       ctx,
-      `✅ Спасибо! <b>${pkg.rounds} раундов</b> добавлено. Играй!`,
-      `✅ Thanks! <b>${pkg.rounds} rounds</b> added. Let's play!`,
+      `✅ Спасибо! <b>${rounds} раундов</b> добавлено. Играй!`,
+      `✅ Thanks! <b>${rounds} rounds</b> added. Let's play!`,
     ),
     {
       parse_mode: "HTML",
@@ -447,7 +379,7 @@ export async function handleGamePayment(ctx: BotContext): Promise<void> {
   await notifyAdmins(ctx.api, {
     title: "🎮 Game top-up",
     ctx,
-    details: `${name} bought ${pkg.title} (${pkg.stars} ⭐ = ${pkg.rounds} rounds). Net: $${(pkg.stars * STAR_NET_USD).toFixed(2)}`,
+    details: `${name} bought ${reportLabel} (${stars} ⭐ = ${rounds} rounds). Net: $${(stars * STAR_NET_USD).toFixed(2)}`,
   }).catch(() => {});
 }
 
@@ -459,73 +391,18 @@ export async function endGame(ctx: BotContext): Promise<void> {
   const score = flow?.score ?? 0;
   const total = flow?.total ?? 0;
   const pct = total > 0 ? Math.round((score / total) * 100) : 0;
-
-  // Pull the persistent stats for an all-time line under this session's result.
-  const gw = await getGameWallet(tg(ctx)).catch(() => null);
-  const statsLine = gw
-    ? tr(
-        ctx,
-        `\n🔥 Лучшая серия: <b>${gw.bestStreak}</b>   🏆 За неделю: <b>${gw.weeklyCorrect}</b>`,
-        `\n🔥 Best streak: <b>${gw.bestStreak}</b>   🏆 This week: <b>${gw.weeklyCorrect}</b>`,
-      )
-    : "";
-
   await ctx.reply(
     tr(
       ctx,
-      `🏁 Игра завершена!\n📊 Результат: <b>${score}/${total}</b> (${pct}%)${statsLine}`,
-      `🏁 Game over!\n📊 Result: <b>${score}/${total}</b> (${pct}%)${statsLine}`,
+      `🏁 Игра завершена!\n📊 Результат: <b>${score}/${total}</b> (${pct}%)`,
+      `🏁 Game over!\n📊 Result: <b>${score}/${total}</b> (${pct}%)`,
     ),
     {
       parse_mode: "HTML",
       reply_markup: new InlineKeyboard()
         .text(tr(ctx, "🔄 Сыграть ещё", "🔄 Play again"), "wg:levels")
         .row()
-        .text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb")
         .text(tr(ctx, "🏠 Меню", "🏠 Menu"), "menu"),
     },
   );
-}
-
-// ── leaderboard ───────────────────────────────────────────────────────────────
-
-export async function showLeaderboard(ctx: BotContext): Promise<void> {
-  const rows = await getWeeklyLeaderboard(10).catch(() => []);
-  const me = tg(ctx);
-  const medals = ["🥇", "🥈", "🥉"];
-
-  const header = tr(ctx, "🏆 <b>Таблица лидеров недели</b>", "🏆 <b>Weekly leaderboard</b>");
-  let body: string;
-  if (!rows.length) {
-    body = tr(
-      ctx,
-      "Пока никто не набрал очков на этой неделе. Будь первым!",
-      "No scores yet this week. Be the first!",
-    );
-  } else {
-    body = rows
-      .map((r, i) => {
-        const rank = medals[i] ?? `${i + 1}.`;
-        const you = r.telegramId === me ? tr(ctx, " ← ты", " ← you") : "";
-        const name = escapeHtml(r.displayName);
-        return tr(
-          ctx,
-          `${rank} <b>${name}</b> — ${r.weeklyCorrect} верных (🔥 ${r.bestStreak})${you}`,
-          `${rank} <b>${name}</b> — ${r.weeklyCorrect} correct (🔥 ${r.bestStreak})${you}`,
-        );
-      })
-      .join("\n");
-  }
-
-  await ctx.reply(`${header}\n\n${body}`, {
-    parse_mode: "HTML",
-    reply_markup: new InlineKeyboard()
-      .text(tr(ctx, "🎮 Играть", "🎮 Play"), "wg:levels")
-      .text(tr(ctx, "🏠 Меню", "🏠 Menu"), "menu"),
-  });
-}
-
-/** Minimal HTML escaping for a user-supplied display name. */
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

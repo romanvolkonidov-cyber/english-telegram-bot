@@ -32,11 +32,8 @@ import {
   showTeacherReport,
 } from "./bot/handlers/teacher.js";
 import { setLanguage, showLanguagePicker } from "./bot/handlers/language.js";
-import { startBonusGrant, bonusOnText } from "./bot/handlers/adminGrant.js";
 import {
   learnCommand,
-  showLevelPicker,
-  showLevelPickerFor,
   showTopics,
   showCourse,
   showLessons,
@@ -50,45 +47,8 @@ import {
   startPurchase,
   handleSuccessfulPayment,
 } from "./bot/handlers/tutor.js";
-import {
-  wordGameCommand,
-  showLevelMenu,
-  startGameLevel,
-  wordGameAnswer,
-  nextGameRound,
-  showGameBuyMenu,
-  startGamePurchase,
-  promptCustomGameAmount,
-  gameCustomOnText,
-  handleGamePayment,
-  endGame,
-  showLeaderboard,
-} from "./bot/handlers/wordgame.js";
 
 const bot = new Bot<BotContext>(config.botToken);
-
-// ── Per-chat serialization ──
-// By default grammY processes a chat's updates concurrently. An impatient user
-// mashing buttons (or firing several voice notes) while the bot is "thinking"
-// would then run overlapping handlers — double charges, scrambled lesson history,
-// and raced in-memory guards (each update loads its own session copy). This makes
-// every update from one chat wait for the previous one to finish, in order, so the
-// session load/save and all guards become reliable. Keyed by chat id; the map
-// self-cleans when a chat goes idle. (Placed before session() so even the session
-// read/write is serialized.)
-const chatQueues = new Map<number, Promise<unknown>>();
-bot.use(async (ctx, next) => {
-  const key = ctx.chat?.id ?? ctx.from?.id;
-  if (key === undefined) return next();
-  const prev = chatQueues.get(key) ?? Promise.resolve();
-  const run = prev.catch(() => {}).then(() => next());
-  chatQueues.set(key, run);
-  try {
-    await run;
-  } finally {
-    if (chatQueues.get(key) === run) chatQueues.delete(key);
-  }
-});
 
 bot.use(
   session({
@@ -130,15 +90,11 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
-// A command (e.g. /menu, /start) always escapes an in-progress quiz, lesson, or game.
+// A command (e.g. /menu, /start) always escapes an in-progress quiz or lesson.
 bot.use(async (ctx, next) => {
   const text = ctx.message?.text;
   const kind = ctx.session.flow?.kind;
-  if (
-    text &&
-    text.startsWith("/") &&
-    (kind === "quiz" || kind === "tutor" || kind === "wordgame" || kind === "grant")
-  ) {
+  if (text && text.startsWith("/") && (kind === "quiz" || kind === "tutor")) {
     ctx.session.flow = undefined;
   }
   await next();
@@ -157,8 +113,6 @@ bot.command("start", startCommand);
 bot.command("menu", goHome);
 bot.command("language", showLanguagePicker);
 bot.command("learn", learnCommand);
-bot.command("wordgame", wordGameCommand);
-bot.command("leaderboard", showLeaderboard);
 bot.command("reminders", toggleReminders);
 bot.command("logout", logoutCommand);
 bot.command("help", (ctx) => ctx.reply(t(ctx.session.lang, "help"), { parse_mode: "HTML" }));
@@ -186,11 +140,6 @@ bot.on("callback_query:data", async (ctx) => {
     if (data === "lrn:topics") return await showTopics(ctx);
     if (data === "lrn:lvl:A1") return await showTopics(ctx, "English", "A1");
     if (data === "lrn:lvl:A2") return await showTopics(ctx, "English", "A2");
-    // Level picker (first self-study screen) and its language toggle / back button.
-    if (data === "lrn:levels") return await showLevelPicker(ctx);
-    if (data.startsWith("lrn:levels:")) return await showLevelPickerFor(ctx, data.slice("lrn:levels:".length));
-    if (data === "lrn:lang:en") return await showLevelPickerFor(ctx, "en");
-    if (data === "lrn:lang:pt") return await showLevelPickerFor(ctx, "pt");
     if (data.startsWith("lrn:c:")) {
       const parts = data.split(":"); // lrn:c:<code>:<level>
       return await showCourse(ctx, parts[2] ?? "en", parts[3] ?? "A1");
@@ -207,21 +156,6 @@ bot.on("callback_query:data", async (ctx) => {
         return await startLesson(ctx, Number(rest.slice(0, sep)), rest.slice(sep + 1));
       }
     }
-
-    // ── Word game navigation ──
-    if (data === "wg:levels") return await showLevelMenu(ctx);
-    if (data.startsWith("wg:lv:")) {
-      const parts = data.split(":");  // wg:lv:<from>:<to>
-      return await startGameLevel(ctx, parts[2] ?? "A1", parts[3] ?? "A2");
-    }
-    if (data.startsWith("wg:ans:")) return await wordGameAnswer(ctx, Number(data.slice("wg:ans:".length)));
-    if (data === "wg:next") return await nextGameRound(ctx);
-    if (data === "wg:retry") return await nextGameRound(ctx);
-    if (data === "wg:end") return await endGame(ctx);
-    if (data === "wg:lb") return await showLeaderboard(ctx);
-    if (data === "wg:shop") return await showGameBuyMenu(ctx, "menu");
-    if (data.startsWith("wg:buy:")) return await startGamePurchase(ctx, data.slice("wg:buy:".length));
-    if (data === "wg:custom") return await promptCustomGameAmount(ctx);
 
     if (data === "menu") return await goHome(ctx);
     if (data === "hw:list") return await showHomeworkList(ctx);
@@ -252,12 +186,6 @@ bot.on("callback_query:data", async (ctx) => {
     if (data.startsWith("t:report:")) {
       return await showTeacherReport(ctx, data.slice("t:report:".length));
     }
-    if (data.startsWith("t:bonus:lessons:")) {
-      return await startBonusGrant(ctx, "lessons", data.slice("t:bonus:lessons:".length));
-    }
-    if (data.startsWith("t:bonus:rounds:")) {
-      return await startBonusGrant(ctx, "rounds", data.slice("t:bonus:rounds:".length));
-    }
     if (data === "logout") return await logoutCommand(ctx);
   } catch (err) {
     console.error("callback error:", err);
@@ -282,8 +210,6 @@ bot.on("message:text", async (ctx) => {
   if (flow?.kind === "login") return await loginOnText(ctx, ctx.message.text);
   if (flow?.kind === "quiz") return await quizOnText(ctx, ctx.message.text);
   if (flow?.kind === "tutor") return await tutorOnText(ctx, ctx.message.text);
-  if (flow?.kind === "grant") return await bonusOnText(ctx, ctx.message.text);
-  if (flow?.kind === "wgbuy") return await gameCustomOnText(ctx, ctx.message.text);
   await goHome(ctx);
 });
 
@@ -310,11 +236,7 @@ bot.on("pre_checkout_query", async (ctx) => {
     });
   }
 });
-bot.on("message:successful_payment", async (ctx) => {
-  const payload = ctx.message?.successful_payment?.invoice_payload ?? "";
-  if (payload.startsWith("wg_pay:")) return await handleGamePayment(ctx);
-  return await handleSuccessfulPayment(ctx);
-});
+bot.on("message:successful_payment", handleSuccessfulPayment);
 
 bot.catch(async (err) => {
   console.error("Bot error while handling update:", err.error);
@@ -349,8 +271,6 @@ async function main(): Promise<void> {
       { command: "start", description: "Log in / open the bot" },
       { command: "menu", description: "Main menu" },
       { command: "learn", description: "AI English tutor (A1 & A2 courses)" },
-      { command: "wordgame", description: "Vocabulary word game" },
-      { command: "leaderboard", description: "Word game weekly leaderboard" },
       { command: "language", description: "Change language" },
       { command: "reminders", description: "Lesson reminders on/off" },
       { command: "logout", description: "Log out" },

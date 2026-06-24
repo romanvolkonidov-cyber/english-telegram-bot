@@ -177,14 +177,36 @@ export interface GamePackage {
 }
 
 /**
- * Purchasable top-up packages. Priced at 7–8 ⭐/round (above the 6 ⭐ floor) so the
- * margin clears 25 % with headroom; bigger pack = cheaper per round = better deal.
- * The boot-time guard below refuses to start if any pack would miss the margin.
+ * Purchasable top-up packages. Priced at 6–8 ⭐/round (the 6 ⭐ floor is the
+ * cheapest tier — it covers the round's real API cost plus the 25 % target margin
+ * exactly); bigger pack = cheaper per round = better deal. The boot-time guard
+ * below refuses to start if any pack would miss the margin.
  */
 export const GAME_PACKAGES: GamePackage[] = [
-  { id: "wg_s", stars: 160, rounds: 20, title: "20 раундов"     }, // 8 ⭐/round
-  { id: "wg_m", stars: 420, rounds: 60, title: "60 раундов 🔥"  }, // 7 ⭐/round
+  { id: "wg_s", stars: 160, rounds: 20,  title: "20 раундов"     }, // 8 ⭐/round
+  { id: "wg_m", stars: 420, rounds: 60,  title: "60 раундов 🔥"  }, // 7 ⭐/round
+  { id: "wg_l", stars: 600, rounds: 100, title: "100 раундов 💎" }, // 6 ⭐/round (best deal)
 ];
+
+/**
+ * Stars per round for a CUSTOM top-up, where the student types how many Stars to
+ * spend instead of picking a package. Set to the cheapest package's per-round
+ * rate (6 ⭐) — it covers the round's real API cost plus the 25 % target margin
+ * exactly, and must stay at/above the margin floor (asserted at boot below).
+ */
+export const GAME_CUSTOM_STARS_PER_ROUND = 6;
+
+/** Smallest custom top-up we accept (600 ⭐ ≈ 100 rounds at the rate above). */
+export const GAME_CUSTOM_MIN_STARS = 600;
+
+/** Largest custom top-up we accept in a single invoice (keeps amounts sane). */
+export const GAME_CUSTOM_MAX_STARS = 2500;
+
+/** Paid rounds a custom Stars amount buys (floored — any leftover Stars are extra
+ *  margin; the buy UI shows the exact round count before the student pays). */
+export function roundsForCustomStars(stars: number): number {
+  return Math.floor(stars / GAME_CUSTOM_STARS_PER_ROUND);
+}
 
 export function gamePackageById(id: string): GamePackage | undefined {
   return GAME_PACKAGES.find((p) => p.id === id);
@@ -229,4 +251,13 @@ for (const p of GAME_PACKAGES) {
         `cost+margin $${required.toFixed(2)}. Raise stars or lower rounds.`,
     );
   }
+}
+
+// A custom top-up bills at GAME_CUSTOM_STARS_PER_ROUND; if that ever dipped below
+// the floor, a student could buy rounds at a loss. Crash rather than allow it.
+if (GAME_CUSTOM_STARS_PER_ROUND < GAME_MIN_STARS_PER_ROUND) {
+  throw new Error(
+    `GAME_CUSTOM_STARS_PER_ROUND (${GAME_CUSTOM_STARS_PER_ROUND}) is below the ` +
+      `${GAME_MIN_STARS_PER_ROUND} ⭐ floor needed for a ${GAME_TARGET_MARGIN * 100}% margin.`,
+  );
 }
