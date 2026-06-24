@@ -48,6 +48,7 @@ export const haptic = {
   success: () => tg?.HapticFeedback.notificationOccurred("success"),
   error: () => tg?.HapticFeedback.notificationOccurred("error"),
   tap: () => tg?.HapticFeedback.selectionChanged(),
+  impact: () => tg?.HapticFeedback.impactOccurred("medium"),
 };
 
 export const isDark = tg?.colorScheme === "dark";

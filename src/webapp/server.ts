@@ -201,15 +201,15 @@ export function startWebappServer(deps: WebappDeps): void {
       pending.delete(user.telegramId); // single-shot
 
       const correct = optIndex === p.correctIndex;
-      const stats = await recordGameAnswer(user.telegramId, correct, user.firstName).catch(() => null);
+      // Grade purely from in-memory state (no DB needed) and respond IMMEDIATELY so
+      // the tap feels instant. Persist stats (streak, weekly leaderboard) in the
+      // background — the verdict must not wait on a Firestore write.
+      void recordGameAnswer(user.telegramId, correct, user.firstName).catch(() => {});
       res.json({
         correct,
         correctIndex: p.correctIndex,
         correctWord: p.options[p.correctIndex] ?? "",
         explain: p.explain,
-        currentStreak: stats?.currentStreak ?? 0,
-        bestStreak: stats?.bestStreak ?? 0,
-        weeklyCorrect: stats?.weeklyCorrect ?? 0,
       });
     }),
   );
@@ -293,18 +293,20 @@ export function startWebappServer(deps: WebappDeps): void {
   app.get(
     "/api/tts",
     authed(async (req, res) => {
-      const word = String((req.query.word as string) || "").slice(0, 80);
-      if (!word.trim()) {
-        res.status(400).json({ error: "no_word" });
+      // Speaks any text: the English word (pronunciation) OR the native-language
+      // feedback (Gemini auto-detects language from the text). `word` kept for
+      // back-compat. Used only in opt-in voice mode.
+      const text = String((req.query.text ?? req.query.word ?? "") as string).slice(0, 400);
+      if (!text.trim()) {
+        res.status(400).json({ error: "no_text" });
         return;
       }
-      const ogg = await synthesizeSpeech(word).catch(() => null);
+      const ogg = await synthesizeSpeech(text).catch(() => null);
       if (!ogg) {
         res.status(503).json({ error: "tts_unavailable" });
         return;
       }
-      // Not charged: ~$0.01, absorbed by the round's flat-rate margin; the frontend
-      // limits playback to once per round so it can't be abused.
+      // Not charged: tiny, absorbed by the round's flat-rate margin.
       res.setHeader("Content-Type", "audio/ogg");
       res.send(Buffer.from(ogg));
     }),

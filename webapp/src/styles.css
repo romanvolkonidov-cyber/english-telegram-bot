@@ -152,6 +152,16 @@ body,
 .opt-dim {
   opacity: 0.5;
 }
+/* Instant feedback the moment an option is tapped, before the verdict arrives. */
+.opt-pending {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+  animation: optPulse 0.8s ease-in-out infinite;
+}
+@keyframes optPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
 
 .explainCard {
   background: var(--card);
@@ -181,6 +191,61 @@ body,
 
 .me {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Corner sound/voice toggles */
+.corner {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 10px;
+  display: flex;
+  gap: 8px;
+  z-index: 50;
+}
+.chip {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  transition: transform 0.08s ease, opacity 0.15s ease;
+}
+.chip:active {
+  transform: scale(0.9);
+}
+.chip-off {
+  opacity: 0.45;
+}
+
+/* Streak celebration banner */
+.streakFlash {
+  position: fixed;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, 0);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 800;
+  font-size: 20px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  z-index: 60;
+  pointer-events: none;
+  animation: streakPop 1.6s ease forwards;
+}
+@keyframes streakPop {
+  0% { transform: translate(-50%, 8px) scale(0.7); opacity: 0; }
+  15% { transform: translate(-50%, 0) scale(1.1); opacity: 1; }
+  30% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translate(-50%, -10px) scale(1); opacity: 0; }
 }
 
 .customRow {

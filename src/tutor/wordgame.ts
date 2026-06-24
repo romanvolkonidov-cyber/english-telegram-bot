@@ -1,4 +1,5 @@
 import { callClaude } from "../services/claude.js";
+import { config } from "../config.js";
 
 /** CEFR level pairs available in the game. */
 export const GAME_LEVELS: { from: string; to: string; label: string }[] = [
@@ -63,18 +64,21 @@ async function verifyRound(
   distractors: string[],
 ): Promise<{ valid: boolean; costUsd: number }> {
   const prompt =
-    `Check a synonym question for an English learner game.\n` +
+    `You are vetting a multiple-choice synonym question for an English learner. Judge it like a dictionary, not loosely.\n` +
     `WORD: "${word}"\n` +
     `Marked correct answer: "${correct}"\n` +
-    `Other options (these should NOT be synonyms of WORD): ${distractors.map((d) => `"${d}"`).join(", ")}\n\n` +
-    `A synonym can replace WORD in a sentence with essentially the same meaning. Be strict but fair.\n` +
-    `Return ONLY this JSON: {"correctIsSynonym": true|false, "otherSynonyms": ["any of the other options that are ALSO a synonym of WORD"]}`;
+    `Other options: ${distractors.map((d) => `"${d}"`).join(", ")}\n\n` +
+    `Rules for a VALID question:\n` +
+    `- "correct" must be a genuine, dictionary-grade synonym of WORD — interchangeable in a normal sentence with essentially the same meaning. If it's only loosely related, a different sense, or a near-miss, it is NOT valid.\n` +
+    `- NONE of the other options may be a synonym of WORD (there must be exactly ONE defensible right answer).\n` +
+    `Return ONLY this JSON: {"correctIsSynonym": true|false, "otherSynonyms": ["any other option that is ALSO a real synonym of WORD"]}`;
   const result = await callClaude({
-    system: "You are a precise English lexicographer. Return ONLY valid JSON, no prose.",
+    system: "You are a precise English lexicographer. Be strict. Return ONLY valid JSON, no prose.",
     messages: [{ role: "user", content: prompt }],
     maxTokens: 150,
     temperature: 0,
     prefill: "{",
+    model: config.deepseekVerifyModel,
   });
   if (!result) return { valid: true, costUsd: 0 }; // verifier down → don't block play
   try {
@@ -114,19 +118,20 @@ async function generateRoundOnce(
     `Return ONLY this JSON object:\n` +
     `{\n` +
     `  "word": "a genuine CEFR ${fromLevel} English word or short phrase",\n` +
-    `  "definition": "brief meaning in ${nativeLanguage} (max 8 words)",\n` +
+    `  "definition": "an ACCURATE, precise meaning in ${nativeLanguage} (max 8 words) — not a loose approximation",\n` +
     `  "correct": "the best CEFR ${toLevel} synonym (a word OR phrase)",\n` +
     `  "distractors": ["${toLevel} item related but NOT a synonym", "another ${toLevel} non-synonym", "a third ${toLevel} non-synonym"],\n` +
-    `  "explain": "2 short sentences in ${nativeLanguage}: (1) confirm the answer and what word + correct both mean; (2) a useful nuance — how correct differs from word (register, strength, connotation, or a typical collocation)"\n` +
+    `  "explain": "2 short sentences in ${nativeLanguage}: (1) the PRECISE meaning of word and of correct — do NOT oversimplify (e.g. 'miserable' is 'extremely unhappy/wretched', NOT just 'sad'); (2) the real nuance — how correct differs from word (strength, register, connotation, or a typical collocation)"\n` +
     `}\n\n` +
     `Rules:\n` +
-    `- word: the difficulty level is the POINT of the game. It MUST genuinely belong to CEFR ${fromLevel} — not easier. For higher levels (B1, B2, C1) that means a real ${fromLevel} word a learner at that level is just acquiring, NOT a beginner A1/A2 word. A single word or a short phrase are both fine.\n` +
+    `- ACCURACY ABOVE ALL: use only well-established, dictionary-grade synonyms. If you are not fully certain that word and correct are genuinely interchangeable, pick a different, clearer pair. A careful teacher with a dictionary must agree.\n` +
+    `- correct: EXACTLY ONE genuine synonym of word — interchangeable in a normal sentence with the same meaning — at CEFR ${toLevel} and clearly more advanced than word. There must be ONLY ONE defensible right answer.\n` +
+    `- distractors: 3 CHALLENGING ${toLevel} words/phrases that are plausible and tempting but are CLEARLY NOT synonyms of word (a careful teacher would mark each one wrong). Same topic/register, or look/sound similar. Never a true synonym, never equal to correct, no duplicates.\n` +
+    `- word: the difficulty level is the POINT of the game. It MUST genuinely belong to CEFR ${fromLevel} — not easier. For B1/B2/C1 that means a real ${fromLevel} word, NOT a beginner A1/A2 word. A single word or a short phrase are both fine.\n` +
     `- VARIETY IS CRITICAL: choose a fresh word each round and rotate across many topics (work, emotions, nature, society, abstract ideas, science, daily life, travel, opinions). Do NOT default to the same handful of words or always to phrasal verbs — surprise the player every time.\n` +
-    `- correct: EXACTLY ONE genuine synonym of word that could replace it in a sentence with the same meaning, at CEFR ${toLevel} and clearly more advanced than word. There must be only ONE defensible right answer.\n` +
-    `- distractors: 3 CHALLENGING ${toLevel} words/phrases — plausible and tempting (same topic/register, or that LOOK or SOUND synonymous but aren't). Never a true synonym of word, never equal to correct, no duplicates.\n` +
     `- keep everything 100% clean and appropriate for ALL ages: nothing rude, scary, sexual, violent, political, or offensive.\n` +
     `- all four options must be different.\n` +
-    `- definition: keep very short; explain: clear and genuinely informative (max 2 sentences).`;
+    `- definition: short but accurate; explain: precise and genuinely informative (max 2 sentences).`;
 
   const result = await callClaude({
     system: SYSTEM,

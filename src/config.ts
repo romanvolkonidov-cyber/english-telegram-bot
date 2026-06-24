@@ -55,6 +55,11 @@ export const config = {
   /** DeepSeek model for both the tutor and the word game. v4-flash is fast & cheap. */
   deepseekModel: (process.env.DEEPSEEK_MODEL || "deepseek-v4-flash").trim(),
 
+  /** Stronger model used ONLY to verify each generated word-game round (accuracy
+   *  matters more than speed for this one short check). Defaults to v4-pro; if it's
+   *  unavailable the verifier fails open, so rounds still play. */
+  deepseekVerifyModel: (process.env.DEEPSEEK_VERIFY_MODEL || "deepseek-v4-pro").trim(),
+
   /**
    * Telegram Mini App (the word game web app).
    * - webappUrl: the HTTPS URL Telegram opens (e.g. https://bot.wellversed.live). When

@@ -13,7 +13,7 @@ import {
 import {
   api,
   ApiError,
-  playPronunciation,
+  playTts,
   type AnswerResp,
   type Level,
   type LeaderRow,
@@ -22,8 +22,12 @@ import {
   type StateResp,
 } from "./api";
 import { haptic, tg } from "./telegram";
+import { sfx, soundEnabled, setSoundEnabled } from "./sound";
 
 type Screen = "loading" | "home" | "play" | "leaderboard" | "shop" | "error";
+
+/** Celebrate the streak at 3, then every 5 correct answers in a row. */
+const isStreakMilestone = (n: number): boolean => n === 3 || (n >= 5 && n % 5 === 0);
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -39,6 +43,19 @@ export function App() {
   const [loadingRound, setLoadingRound] = useState(false);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [streak, setStreak] = useState(0);
+  const [streakFlash, setStreakFlash] = useState<number | null>(null);
+
+  // Settings (persisted): subtle sound effects (default on) + opt-in voice (default off).
+  const [soundOn, setSoundOn] = useState<boolean>(soundEnabled());
+  const [voiceOn, setVoiceOn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("wg_voice_on") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const voiceOnRef = useRef(voiceOn);
+  voiceOnRef.current = voiceOn;
 
   // Words served this session (avoid-list), kept in a ref so prefetch reads the
   // latest synchronously. The server ALSO persists recent words per player.
@@ -81,6 +98,7 @@ export function App() {
         setRound(r);
         usedWords.current = [...usedWords.current, r.word].slice(-40);
         setScreen("play");
+        if (voiceOnRef.current) void playTts(r.word);
       } catch (e) {
         if (e instanceof ApiError && e.status === 402) {
           await openShop("out");
@@ -126,15 +144,32 @@ export function App() {
 
   const submit = async (idx: number) => {
     if (answer || busy) return;
+    sfx.tap();
+    haptic.tap();
     setPicked(idx);
     setBusy(true);
     try {
       const a = await api.answer(idx);
       setAnswer(a);
-      setStreak(a.currentStreak);
+      // Streak is tracked locally (server persists it in the background) so the
+      // celebration fires instantly without waiting on the DB.
+      const newStreak = a.correct ? streak + 1 : 0;
+      setStreak(newStreak);
       setScore((s) => ({ correct: s.correct + (a.correct ? 1 : 0), total: s.total + 1 }));
-      if (a.correct) haptic.success();
-      else haptic.error();
+      if (a.correct) {
+        sfx.correct();
+        haptic.success();
+        if (isStreakMilestone(newStreak)) {
+          sfx.streak();
+          haptic.impact();
+          setStreakFlash(newStreak);
+          window.setTimeout(() => setStreakFlash(null), 1600);
+        }
+      } else {
+        sfx.wrong();
+        haptic.error();
+      }
+      if (voiceOnRef.current) void playTts(a.explain); // read the feedback aloud
       if (level) prefetchNext(level); // warm up the next word while they read this one
     } catch {
       setPicked(null);
@@ -166,6 +201,7 @@ export function App() {
       setAnswer(null);
       setPicked(null);
       setScreen("play");
+      if (voiceOnRef.current) void playTts(pre.round.word);
       return;
     }
     // No prefetched round (it errored) → fetch on demand (shows the spinner).
@@ -176,6 +212,45 @@ export function App() {
     haptic.tap();
     await loadState();
   };
+
+  // ── Settings: persistent sound + voice toggles (shown in the top-right corner) ──
+  const toggleSound = () => {
+    const v = !soundOn;
+    setSoundOn(v);
+    setSoundEnabled(v);
+    if (v) sfx.tap(); // little confirmation blip when turning ON
+  };
+  const toggleVoice = () => {
+    const v = !voiceOn;
+    setVoiceOn(v);
+    try {
+      localStorage.setItem("wg_voice_on", v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    haptic.tap();
+    sfx.tap();
+  };
+  const corner = (
+    <div className="corner">
+      <button
+        className={`chip ${soundOn ? "chip-on" : "chip-off"}`}
+        onClick={toggleSound}
+        aria-label={T("Звуки", "Sound effects")}
+        title={T("Звуки", "Sound effects")}
+      >
+        {soundOn ? "🔊" : "🔇"}
+      </button>
+      <button
+        className={`chip ${voiceOn ? "chip-on" : "chip-off"}`}
+        onClick={toggleVoice}
+        aria-label={T("Голос", "Voice")}
+        title={T("Озвучка слова и комментария", "Speak the word & feedback")}
+      >
+        🗣️
+      </button>
+    </div>
+  );
 
   // ── Shop ──
   const [shop, setShop] = useState<ShopResp | null>(null);
@@ -263,6 +338,7 @@ export function App() {
   if (screen === "home" && state) {
     return (
       <div className="screen">
+        {corner}
         <div className="hero">
           <LargeTitle weight="1">{T("Игра слов", "Word Game")}</LargeTitle>
           <Caption level="1" className="muted">
@@ -308,13 +384,17 @@ export function App() {
 
   if (screen === "play" && round) {
     const optionClass = (i: number): string => {
-      if (!answer) return "opt";
+      if (!answer) return i === picked ? "opt opt-pending" : "opt";
       if (i === answer.correctIndex) return "opt opt-correct";
       if (i === picked) return "opt opt-wrong";
       return "opt opt-dim";
     };
     return (
       <div className="screen">
+        {corner}
+        {streakFlash !== null && (
+          <div className="streakFlash">🔥 {streakFlash} {T("подряд!", "in a row!")}</div>
+        )}
         <div className="topbar">
           <span>{level?.label}</span>
           <span>
@@ -328,7 +408,7 @@ export function App() {
             {round.word}
           </Title>
           {round.definition && <Caption className="muted">{round.definition}</Caption>}
-          <button className="speak" onClick={() => void playPronunciation(round.word)} aria-label="play">
+          <button className="speak" onClick={() => void playTts(round.word)} aria-label="play">
             🔊
           </button>
         </div>
@@ -379,6 +459,7 @@ export function App() {
   if (screen === "leaderboard") {
     return (
       <div className="screen">
+        {corner}
         <LargeTitle weight="1">{T("🏆 Лидеры недели", "🏆 Weekly leaders")}</LargeTitle>
         {board && board.length > 0 ? (
           <Section>
@@ -413,6 +494,7 @@ export function App() {
     const csRounds = csValid ? Math.floor(cs / shop.custom.starsPerRound) : 0;
     return (
       <div className="screen">
+        {corner}
         <LargeTitle weight="1">{T("💎 Пополнить", "💎 Get rounds")}</LargeTitle>
         {shopNote === "out" && (
           <Caption className="muted">
