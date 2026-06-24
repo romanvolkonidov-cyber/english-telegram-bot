@@ -1,13 +1,14 @@
 import { spawn } from "node:child_process";
 import ffmpegPath from "ffmpeg-static";
 import { config, hasGemini } from "../config.js";
+import { fetchWithRetry } from "./http.js";
 
 /**
- * Voice and image generation for the /learn tutor, both via the Gemini API
- * (reusing GEMINI_API — no extra key). Telegram voice notes must be OGG/Opus,
- * so the raw PCM that Gemini TTS returns is transcoded with a bundled static
- * ffmpeg. Every function degrades gracefully to null on any failure, so the
- * lesson always continues with text even if media is unavailable.
+ * Voice and image generation for the /learn tutor — Gemini for TTS and Imagen
+ * for image generation (both reusing GEMINI_API — no extra key). Telegram voice
+ * notes must be OGG/Opus, so the raw PCM that Gemini TTS returns is transcoded
+ * with a bundled static ffmpeg. Every function degrades gracefully to null on any
+ * failure, so the lesson always continues with text even if media is unavailable.
  */
 
 const GEN_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -44,83 +45,199 @@ function pcmToOgg(pcm: Buffer, sampleRate: number): Promise<Uint8Array | null> {
   });
 }
 
-/** Speak a short English sentence; returns Ogg/Opus bytes for a Telegram voice note. */
+/** One TTS attempt on a specific model → Ogg/Opus bytes, or null. */
+async function ttsOnce(model: string, text: string): Promise<Uint8Array | null> {
+  // Prepend a clear directive so the TTS prompt-classifier fires correctly.
+  // Without it, "gemini-2.5-flash-preview-tts" occasionally returns 400
+  // "Model tried to generate text" when the classifier doesn't activate.
+  const ttsText = `Read aloud: ${text}`;
+  const res = await fetchWithRetry(
+    `${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: ttsText }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: config.geminiTtsVoice } },
+          },
+        },
+      }),
+    },
+    { label: `Gemini TTS (${model})`, attempts: 2, timeoutMs: 20_000 },
+  );
+  if (!res) return null;
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+  };
+  const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+  const b64 = part?.inlineData?.data;
+  if (!b64) return null;
+  const rate = Number(part?.inlineData?.mimeType?.match(/rate=(\d+)/)?.[1]) || 24000;
+  return await pcmToOgg(Buffer.from(b64, "base64"), rate);
+}
+
+// Alternate TTS models to fall back to when the primary returns a sustained 500
+// (Google's TTS endpoints have transient INTERNAL spells). All reuse GEMINI_API.
+const TTS_MODEL_FALLBACKS = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts", "gemini-3.1-flash-tts-preview"];
+let workingTtsModel: string | null = null;
+
+/** Speak a short sentence; returns Ogg/Opus bytes for a Telegram voice note. Tries
+ *  the configured model, then known-good fallbacks, so a model-specific outage
+ *  recovers to a different voice model instead of silently dropping to text. */
 export async function synthesizeSpeech(text: string): Promise<Uint8Array | null> {
   if (!hasGemini || !text.trim()) return null;
-  try {
-    const res = await fetch(
-      `${GEN_URL}/${config.geminiTtsModel}:generateContent?key=${config.geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: config.geminiTtsVoice } },
-            },
-          },
-        }),
-      },
-    );
-    if (!res.ok) {
-      console.error("Gemini TTS error:", res.status, await res.text());
-      return null;
+  const candidates = [workingTtsModel, config.geminiTtsModel, ...TTS_MODEL_FALLBACKS].filter(
+    (m, i, a): m is string => !!m && a.indexOf(m) === i,
+  );
+  for (const model of candidates) {
+    try {
+      const ogg = await ttsOnce(model, text);
+      if (ogg) {
+        if (workingTtsModel !== model) {
+          workingTtsModel = model;
+          console.log(`[media] TTS model in use: ${model}`);
+        }
+        return ogg;
+      }
+    } catch (err) {
+      console.error(`TTS model ${model} threw:`, err);
     }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
-    };
-    const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
-    const b64 = part?.inlineData?.data;
-    if (!b64) return null;
-    const rate = Number(part?.inlineData?.mimeType?.match(/rate=(\d+)/)?.[1]) || 24000;
-    return await pcmToOgg(Buffer.from(b64, "base64"), rate);
+  }
+  return null; // every model failed — caller shows the text instead
+}
+
+/** Visual style for a generated picture. */
+export type ImageStyle = "illustration" | "photo";
+
+/** Wrap a short description into a clean image prompt in the requested style. */
+function imagePrompt(subject: string, style: ImageStyle = "illustration"): string {
+  if (style === "photo") {
+    return (
+      `A realistic, high-quality color photograph of: ${subject}. ` +
+      "Real-life scene, natural lighting, true-to-life detail, like a stock photo. " +
+      "Not a drawing, not a cartoon, not an illustration. No text or words in the image."
+    );
+  }
+  return (
+    `A clear, simple, friendly illustration for an English beginner's vocabulary flashcard: ${subject}. ` +
+    "Bright, clean, no text or words in the image."
+  );
+}
+
+/** A generated picture plus its real MIME type. The type matters: some image
+ *  models return PNG and others JPEG, and when we later show the picture to the
+ *  vision model we must declare the CORRECT type or it may reject the image. */
+export interface GeneratedImage {
+  bytes: Uint8Array;
+  mimeType: string;
+}
+
+/** Gemini "flash image" / "pro image" models — generateContent, image in inlineData. */
+async function genViaGemini(model: string, prompt: string, style: ImageStyle): Promise<GeneratedImage | null> {
+  const res = await fetchWithRetry(
+    `${GEN_URL}/${model}:generateContent?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: imagePrompt(prompt, style) }] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+      }),
+    },
+    { label: `Gemini image (${model})`, attempts: 3, timeoutMs: 40_000 },
+  );
+  if (!res) return null;
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
+  };
+  const part = data.candidates?.[0]?.content?.parts?.find((p) =>
+    p.inlineData?.mimeType?.startsWith("image/"),
+  );
+  const b64 = part?.inlineData?.data;
+  if (!b64) return null;
+  return { bytes: new Uint8Array(Buffer.from(b64, "base64")), mimeType: part!.inlineData!.mimeType || "image/png" };
+}
+
+/** Imagen models — the :predict endpoint (different request/response shape from Gemini). */
+async function genViaImagen(model: string, prompt: string, style: ImageStyle): Promise<GeneratedImage | null> {
+  const res = await fetchWithRetry(
+    `${GEN_URL}/${model}:predict?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instances: [{ prompt: imagePrompt(prompt, style) }],
+        parameters: { sampleCount: 1 },
+      }),
+    },
+    { label: `Imagen (${model})`, attempts: 3, timeoutMs: 40_000 },
+  );
+  if (!res) return null;
+  const data = (await res.json()) as {
+    predictions?: { bytesBase64Encoded?: string; mimeType?: string }[];
+  };
+  const pred = data.predictions?.[0];
+  const b64 = pred?.bytesBase64Encoded;
+  if (!b64) return null;
+  return { bytes: new Uint8Array(Buffer.from(b64, "base64")), mimeType: pred?.mimeType || "image/png" };
+}
+
+/** Call the right API for a model id: imagen-* → :predict, otherwise generateContent. */
+async function tryImageModel(model: string, prompt: string, style: ImageStyle): Promise<GeneratedImage | null> {
+  try {
+    return model.toLowerCase().startsWith("imagen")
+      ? await genViaImagen(model, prompt, style)
+      : await genViaGemini(model, prompt, style);
   } catch (err) {
-    console.error("synthesizeSpeech error:", err);
+    console.error(`image model ${model} threw:`, err);
     return null;
   }
 }
 
-/** Generate a simple illustrative picture for a vocabulary word; returns image bytes. */
-export async function generateImage(prompt: string): Promise<Uint8Array | null> {
-  if (!hasGemini || !prompt.trim()) return null;
-  try {
-    const res = await fetch(
-      `${GEN_URL}/${config.geminiImageModel}:generateContent?key=${config.geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text:
-                    `A clear, simple, friendly illustration for an English beginner's vocabulary flashcard: ${prompt}. ` +
-                    "Bright, clean, no text or words in the image.",
-                },
-              ],
-            },
-          ],
-          generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
-        }),
-      },
-    );
-    if (!res.ok) {
-      console.error("Gemini image error:", res.status, await res.text());
-      return null;
+// Known-good current models to fall back through if the configured one isn't enabled
+// on the key (Gemini flash-image via generateContent; Imagen 4 via :predict).
+const IMAGE_MODEL_FALLBACKS = [
+  "gemini-2.5-flash-image",
+  "gemini-3.1-flash-image",
+  "imagen-4.0-fast-generate-001",
+  "imagen-4.0-generate-001",
+];
+let workingImageModel: string | null = null; // remembered after the first success
+let imageFailStreak = 0;
+let imageGenOff = false; // tripped after repeated total failures (reset on restart)
+
+/**
+ * Generate a simple illustrative picture; returns image bytes, or null if image
+ * generation isn't available. Tries the configured model (IMAGEN_IMAGE_MODEL —
+ * may be an imagen-* or a gemini-*-image id), then known-good fallbacks, and
+ * remembers whichever works so later calls are direct.
+ */
+export async function generateImage(
+  prompt: string,
+  opts: { style?: ImageStyle } = {},
+): Promise<GeneratedImage | null> {
+  if (!hasGemini || !prompt.trim() || imageGenOff) return null;
+  const style = opts.style ?? "illustration";
+  const candidates = [workingImageModel, config.imagenImageModel, ...IMAGE_MODEL_FALLBACKS].filter(
+    (m, i, a): m is string => !!m && a.indexOf(m) === i,
+  );
+  for (const model of candidates) {
+    const img = await tryImageModel(model, prompt, style);
+    if (img) {
+      if (workingImageModel !== model) {
+        workingImageModel = model;
+        console.log(`[media] image model in use: ${model}`);
+      }
+      imageFailStreak = 0;
+      return img;
     }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[];
-    };
-    const part = data.candidates?.[0]?.content?.parts?.find((p) =>
-      p.inlineData?.mimeType?.startsWith("image/"),
-    );
-    const b64 = part?.inlineData?.data;
-    return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
-  } catch (err) {
-    console.error("generateImage error:", err);
-    return null;
   }
+  if (++imageFailStreak >= 3) {
+    imageGenOff = true;
+    console.error("[media] image generation unavailable on this key — disabling for this run.");
+  }
+  return null;
 }

@@ -60,7 +60,9 @@ export async function showStudentReports(ctx: BotContext, studentId: string): Pr
   const name = esc(student?.name ?? "Student");
 
   if (reports.length === 0) {
-    const kb = new InlineKeyboard().text(t(lang, "btn_back"), "t:students");
+    const kb = new InlineKeyboard();
+    addBonusRow(ctx, kb, studentId);
+    kb.text(t(lang, "btn_back"), "t:students");
     await view(ctx, t(lang, "teacher_no_reports"), kb);
     return;
   }
@@ -75,8 +77,19 @@ export async function showStudentReports(ctx: BotContext, studentId: string): Pr
   }));
 
   const kb = resultsListKeyboard(lang, items, "t:report");
-  kb.row().text(t(lang, "btn_back"), "t:students");
+  kb.row();
+  addBonusRow(ctx, kb, studentId);
+  kb.text(t(lang, "btn_back"), "t:students");
   await view(ctx, t(lang, "teacher_reports_title", { name }), kb);
+}
+
+/** Append a "give bonus lessons / rounds" row to a student-screen keyboard. */
+function addBonusRow(ctx: BotContext, kb: InlineKeyboard, studentId: string): void {
+  const en = ctx.session.lang === "en";
+  kb
+    .text(en ? "🎁 + Lessons" : "🎁 + Уроки", `t:bonus:lessons:${studentId}`)
+    .text(en ? "🎮 + Rounds" : "🎮 + Раунды", `t:bonus:rounds:${studentId}`)
+    .row();
 }
 
 export async function showTeacherReport(ctx: BotContext, reportId: string): Promise<void> {

@@ -24,6 +24,7 @@ import {
 } from "../../data/gamification.js";
 import { getConnection, setRemindersEnabled } from "../../data/connections.js";
 import { renderReport } from "../report.js";
+import { notifyAdmins } from "../../services/adminNotify.js";
 
 /** Resolve the logged-in student id, or tell the user to log in. */
 export function requireStudent(ctx: BotContext): string | null {
@@ -99,11 +100,23 @@ export async function sendReport(
   const report = await fetchReportById(reportId);
   if (!report) {
     await ctx.reply(t(lang, "error_generic"), { parse_mode: "HTML" });
+    await notifyAdmins(ctx.api, {
+      title: "Student saw report error",
+      ctx,
+      details: `Missing report ${reportId}`,
+      onlyForStudents: true,
+    });
     return;
   }
   // Students may only view their own reports.
   if (!opts.isTeacher && report.studentId !== ctx.session.studentId) {
     await ctx.reply(t(lang, "error_generic"), { parse_mode: "HTML" });
+    await notifyAdmins(ctx.api, {
+      title: "Student saw report access error",
+      ctx,
+      details: `Denied report ${reportId}`,
+      onlyForStudents: true,
+    });
     return;
   }
 
@@ -176,6 +189,12 @@ export async function toggleReminders(ctx: BotContext): Promise<void> {
   } catch (err) {
     console.error("toggleReminders failed:", err);
     await ctx.reply(t(lang, "error_generic"), { parse_mode: "HTML" });
+    await notifyAdmins(ctx.api, {
+      title: "Student saw reminders error",
+      ctx,
+      err,
+      onlyForStudents: true,
+    });
     return;
   }
   await ctx.reply(t(lang, next ? "reminders_enabled" : "reminders_disabled"), {

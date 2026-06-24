@@ -1,12 +1,14 @@
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { ensureAuth, storage } from "../firebase.js";
 import { config } from "../config.js";
+import { fetchWithRetry } from "./http.js";
 
-/** Download the bytes of a Telegram file given its API file path. */
+/** Download the bytes of a Telegram file given its API file path. A bounded
+ *  timeout + retry so a stalled file CDN can never hang a voice turn forever. */
 export async function downloadTelegramFile(filePath: string): Promise<Uint8Array> {
   const url = `https://api.telegram.org/file/bot${config.botToken}/${filePath}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to download Telegram file: ${res.status}`);
+  const res = await fetchWithRetry(url, {}, { label: "Telegram file download", attempts: 3, timeoutMs: 20_000 });
+  if (!res) throw new Error("Failed to download Telegram file (after retries)");
   return new Uint8Array(await res.arrayBuffer());
 }
 
