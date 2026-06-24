@@ -372,15 +372,11 @@ async function main(): Promise<void> {
     console.error("setMyCommands failed (continuing):", err);
   }
 
-  // Menu button: when the Mini App is configured, make it the prominent "Open" Web
-  // App button (the single launch button, like BotFather's own bot). Otherwise fall
-  // back to the command list (and clear any stale web-app button from a prior setup).
+  // Keep the menu button as the command list (clears any stale web-app "Open" button
+  // from a prior setup). The word game launches from the in-chat "🎮 Word game" menu
+  // button and the /wordgame command, NOT from this menu button.
   try {
-    await bot.api.setChatMenuButton({
-      menu_button: hasWebapp
-        ? { type: "web_app", text: "🎮 Play", web_app: { url: config.webappUrl } }
-        : { type: "commands" },
-    });
+    await bot.api.setChatMenuButton({ menu_button: { type: "commands" } });
   } catch (err) {
     console.error("setChatMenuButton failed (continuing):", err);
   }
