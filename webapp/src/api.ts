@@ -33,6 +33,8 @@ export interface AnswerResp {
   correctIndex: number;
   correctWord: string;
   explain: string;
+  /** Why the chosen distractor is wrong (only present when correct === false). */
+  wrongExplain?: string;
 }
 export interface LeaderRow {
   displayName: string;

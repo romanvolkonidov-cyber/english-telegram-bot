@@ -403,6 +403,9 @@ export function App() {
                 ? T("✅ Верно!", "✅ Correct!")
                 : T(`❌ Лучший ответ: ${answer.correctWord}`, `❌ Best answer: ${answer.correctWord}`)}
             </div>
+            {!answer.correct && answer.wrongExplain && (
+              <Caption className="muted wrongExplain">{answer.wrongExplain}</Caption>
+            )}
             <Caption className="muted">{answer.explain}</Caption>
           </div>
         )}

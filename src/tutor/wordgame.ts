@@ -15,6 +15,8 @@ export interface GameRound {
   options: string[];      // 4 options, shuffled
   correctIndex: number;
   explain: string;        // why the correct option is the best synonym
+  /** Why each distractor is NOT correct. Keys are the distractor words. */
+  distractorExplains: Record<string, string>;
   /** Real USD cost of the LLM calls for this round (generation + verification). */
   costUsd: number;
 }
@@ -125,7 +127,8 @@ async function generateRoundOnce(
     `  "definition": "an ACCURATE, precise meaning in ${nativeLanguage} (max 8 words) — not a loose approximation",\n` +
     `  "correct": "the best CEFR ${toLevel} synonym (a word OR phrase)",\n` +
     `  "distractors": ["${toLevel} item related but NOT a synonym", "another ${toLevel} non-synonym", "a third ${toLevel} non-synonym"],\n` +
-    `  "explain": "2 short sentences in ${nativeLanguage}: (1) the PRECISE meaning of word and of correct — do NOT oversimplify (e.g. 'miserable' is 'extremely unhappy/wretched', NOT just 'sad'); (2) the real nuance — how correct differs from word (strength, register, connotation, or a typical collocation)"\n` +
+    `  "explain": "2 short sentences in ${nativeLanguage}: (1) the PRECISE meaning of word and of correct — do NOT oversimplify (e.g. 'miserable' is 'extremely unhappy/wretched', NOT just 'sad'); (2) the real nuance — how correct differs from word (strength, register, connotation, or a typical collocation)",\n` +
+    `  "distractorExplains": { "<each distractor word>": "1 sentence in ${nativeLanguage} explaining exactly why this word does NOT fit — what it actually means and why it cannot replace word in this context" }\n` +
     `}\n\n` +
     `Rules:\n` +
     `- ACCURACY ABOVE ALL: use only well-established, dictionary-grade synonyms. If you are not fully certain that word and correct are genuinely interchangeable, pick a different, clearer pair. A careful teacher with a dictionary must agree.\n` +
@@ -140,7 +143,7 @@ async function generateRoundOnce(
   const result = await callClaude({
     system: SYSTEM,
     messages: [{ role: "user", content: prompt }],
-    maxTokens: 400,
+    maxTokens: 500,
     temperature: 1.0, // high sampling → more variety in the chosen word
     prefill: "{",
   });
@@ -152,6 +155,7 @@ async function generateRoundOnce(
     correct?: string;
     distractors?: unknown[];
     explain?: string;
+    distractorExplains?: Record<string, unknown>;
   }
 
   const obj = parseJsonObject<RoundJSON>(result.text);
@@ -181,13 +185,24 @@ async function generateRoundOnce(
   // Need a full set of plausible wrong answers; a degenerate round isn't worth showing.
   if (distractors.length < 3) return null;
 
-  // Shuffle the four options and track where the correct one lands.
+  // Shuffle the four options, tracking the correct item's index explicitly so we
+  // don't rely on post-shuffle string search (which could fail with duplicate text).
   const pool = [correct, ...distractors];
+  let correctIndex = 0; // correct starts at pool[0]
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+    if (correctIndex === i) correctIndex = j;
+    else if (correctIndex === j) correctIndex = i;
   }
-  const correctIndex = pool.indexOf(correct);
+
+  // Pull distractor explanations from the model (string values only).
+  const rawDE = obj.distractorExplains ?? {};
+  const distractorExplains: Record<string, string> = {};
+  for (const d of distractors) {
+    const v = rawDE[d];
+    if (typeof v === "string" && v.trim()) distractorExplains[d] = v.trim();
+  }
 
   return {
     word: obj.word.trim(),
@@ -195,6 +210,7 @@ async function generateRoundOnce(
     options: pool,
     correctIndex,
     explain: (obj.explain ?? "").trim(),
+    distractorExplains,
     costUsd: result.costUsd,
   };
 }

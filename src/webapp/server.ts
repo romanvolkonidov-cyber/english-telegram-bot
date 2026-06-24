@@ -47,6 +47,7 @@ interface PendingRound {
   correctIndex: number;
   options: string[];
   explain: string;
+  distractorExplains: Record<string, string>;
   word: string;
   createdAt: number;
 }
@@ -167,6 +168,7 @@ export function startWebappServer(deps: WebappDeps): void {
         correctIndex: round.correctIndex,
         options: round.options,
         explain: round.explain,
+        distractorExplains: round.distractorExplains,
         word: round.word,
         createdAt: Date.now(),
       });
@@ -204,11 +206,17 @@ export function startWebappServer(deps: WebappDeps): void {
       // the tap feels instant. Persist stats (streak, weekly leaderboard) in the
       // background — the verdict must not wait on a Firestore write.
       void recordGameAnswer(user.telegramId, correct, user.firstName).catch(() => {});
+      // When wrong, send back why the chosen distractor doesn't fit (generated with
+      // the round so no extra LLM call is needed here).
+      const wrongExplain = correct
+        ? undefined
+        : (p.distractorExplains[p.options[optIndex] ?? ""] ?? undefined);
       res.json({
         correct,
         correctIndex: p.correctIndex,
         correctWord: p.options[p.correctIndex] ?? "",
         explain: p.explain,
+        wrongExplain,
       });
     }),
   );

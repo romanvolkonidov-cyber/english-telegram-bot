@@ -16,7 +16,7 @@ cd "$LOCAL_DIR"
 # These are written into the server's .env on every deploy (other keys like
 # BOT_TOKEN are left untouched — .env is never rsynced). Edit here once.
 CLAUDE_MODEL="claude-haiku-4-5-20251001"      # tutor + word game run on Haiku 4.5
-WEBAPP_URL="https://bot.wellversed.live"      # the HTTPS URL Telegram opens (Vercel)
+WEBAPP_URL=""                                  # set to "https://bot.wellversed.live" to re-enable the Mini App
 WEBAPP_API_DOMAIN="api.wellversed.live"        # public hostname for the API (Caddy serves it)
 WEBAPP_API_PORT="8081"                         # local port the in-process API listens on
 # Telegram user IDs that play the Mini App for FREE (comma-separated): you + wife.

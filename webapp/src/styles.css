@@ -181,6 +181,11 @@ body,
 .verdict.no {
   color: var(--no);
 }
+.wrongExplain {
+  border-left: 2px solid var(--no);
+  padding-left: 8px;
+  opacity: 0.9;
+}
 
 .actions {
   display: flex;
