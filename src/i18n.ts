@@ -35,8 +35,11 @@ const en = {
   menu_homework: "📚 My homework",
   menu_results: "📊 My results",
   menu_progress: "🎮 My progress",
+  menu_learn: "📚 Self-Study",
+  menu_wordgame: "🎮 Word game",
   menu_language: "🌐 Language",
   menu_logout: "🚪 Log out",
+  kb_removed: "🧹 Tidied up the old menu — just use the buttons in the chat.",
 
   // ── homework list ──
   hw_list_title: "📚 <b>Your homework</b>",
@@ -108,6 +111,7 @@ const en = {
     "💡 Open the website to spend coins, grow your tree and care for your pet.",
 
   // ── teacher ──
+  teacher_menu_learn: "📚 Self-Study",
   teacher_menu_students: "👩‍🎓 Students",
   teacher_menu_logout: "🚪 Log out",
   teacher_students_title:
@@ -167,8 +171,11 @@ const ru: Record<TranslationKey, string> = {
   menu_homework: "📚 Домашние задания",
   menu_results: "📊 Мои результаты",
   menu_progress: "🎮 Мой прогресс",
+  menu_learn: "📚 Самоподготовка",
+  menu_wordgame: "🎮 Игра слов",
   menu_language: "🌐 Язык",
   menu_logout: "🚪 Выйти",
+  kb_removed: "🧹 Убрал старое меню — просто пользуйся кнопками в чате.",
 
   hw_list_title: "📚 <b>Ваши домашние задания</b>",
   hw_none: "🎉 Сейчас нет невыполненных заданий. Отличная работа!",
@@ -233,6 +240,7 @@ const ru: Record<TranslationKey, string> = {
   progress_web_hint:
     "💡 Откройте сайт, чтобы тратить монеты, растить дерево и заботиться о питомце.",
 
+  teacher_menu_learn: "📚 Самоподготовка",
   teacher_menu_students: "👩‍🎓 Ученики",
   teacher_menu_logout: "🚪 Выйти",
   teacher_students_title:

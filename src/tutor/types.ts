@@ -1,4 +1,4 @@
-import type { LessonFocus } from "./curriculum.js";
+import type { CEFRLevel, LessonFocus, TargetLanguage } from "./curriculum.js";
 
 /**
  * Persistent profile of a learner, stored in the tutor Firestore. Keyed by the
@@ -8,12 +8,11 @@ import type { LessonFocus } from "./curriculum.js";
 export interface LearnerProfile {
   telegramId: string;
   name?: string;
-  /** Language the learner speaks natively, e.g. "Russian". Used for bilingual help. */
+  /** Language the learner speaks natively, e.g. "Russian". Follows the bot's
+   *  language (set from the main menu); used for bilingual help. */
   nativeLanguage: string;
-  /** True once the learner has explicitly chosen their help language. */
-  langConfirmed?: boolean;
-  /** Self-reported or inferred CEFR-ish level. We only teach A1 for now. */
-  level: "A0" | "A1";
+  /** Self-reported or inferred CEFR-ish level. */
+  level: "A0" | "A1" | "A2";
   createdAt: number;
   updatedAt: number;
 }
@@ -57,6 +56,9 @@ export interface TutorReply {
   board: string | null;
   /** Short description of a picture to show (vocabulary lessons), or null. */
   image: string | null;
+  /** True when the picture is the subject of the task: the bot will generate it,
+   *  let the tutor SEE it, and then ask a question grounded in what's actually shown. */
+  imageAsk: boolean;
   /** Optional multiple-choice check. Null when the tutor just wants a free reply. */
   quiz: PendingQuiz | null;
   /** What we expect next: a spoken reply, a typed reply, a quiz tap, or nothing. */
@@ -69,6 +71,10 @@ export interface TutorReply {
 
 export interface LessonContext {
   topicId: number;
+  /** CEFR course this lesson belongs to (A1 / A2). */
+  level: CEFRLevel;
+  /** The language being taught (English / Portuguese). */
+  target: TargetLanguage;
   topicTitle: string;
   lessonId: string;
   lessonTitle: string;

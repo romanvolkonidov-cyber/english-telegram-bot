@@ -11,6 +11,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db, ensureAuth } from "../firebase.js";
+import { toMillis } from "../util/format.js";
 import type { Language } from "../config.js";
 import type { Connection } from "../types.js";
 
@@ -96,6 +97,9 @@ export interface StudentConnection {
   language: Language;
   remindersEnabled: boolean;
   sentReminders: string[];
+  /** When this account last logged in (ms since epoch; 0 if unknown). Used to pick
+   *  the account a student actually uses when one student has linked more than one. */
+  lastActiveMs: number;
 }
 
 /** All student chats registered with THIS bot (used for lesson reminders). */
@@ -114,6 +118,7 @@ export async function listStudentConnections(): Promise<StudentConnection[]> {
       language: c.language,
       remindersEnabled: c.remindersEnabled !== false, // default on
       sentReminders: c.sentReminders ?? [],
+      lastActiveMs: toMillis(c.lastActive as Parameters<typeof toMillis>[0]),
     }));
 }
 

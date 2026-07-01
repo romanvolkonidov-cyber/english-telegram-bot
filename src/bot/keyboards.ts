@@ -1,19 +1,28 @@
 import { InlineKeyboard } from "grammy";
-import type { Language } from "../config.js";
+import { config, hasWebapp, type Language } from "../config.js";
 import { t } from "../i18n.js";
 import { formatDate, truncate } from "../util/format.js";
 import type { HomeworkAssignment, HomeworkReport, Student } from "../types.js";
 import { assignmentTitle } from "../data/homework.js";
 
+/** Word-game entry: opens the Mini App directly when configured, else the chat flow. */
+function addWordGameButton(kb: InlineKeyboard, lang: Language): void {
+  if (hasWebapp) kb.webApp(t(lang, "menu_wordgame"), config.webappUrl);
+  else kb.text(t(lang, "menu_wordgame"), "wg:levels");
+}
+
 export function mainMenuKeyboard(lang: Language): InlineKeyboard {
-  return new InlineKeyboard()
+  const kb = new InlineKeyboard()
     .text(t(lang, "menu_homework"), "hw:list")
     .text(t(lang, "menu_results"), "results")
     .row()
     .text(t(lang, "menu_progress"), "progress")
     .row()
-    .text(t(lang, "menu_language"), "lang:menu")
-    .text(t(lang, "menu_logout"), "logout");
+    .text(t(lang, "menu_learn"), "learn")
+    .row();
+  addWordGameButton(kb, lang);
+  kb.row().text(t(lang, "menu_language"), "lang:menu").text(t(lang, "menu_logout"), "logout");
+  return kb;
 }
 
 export function backToMenuKeyboard(lang: Language): InlineKeyboard {
@@ -81,11 +90,16 @@ export function resultsListKeyboard(
 }
 
 export function teacherMenuKeyboard(lang: Language): InlineKeyboard {
-  return new InlineKeyboard()
+  const kb = new InlineKeyboard()
+    .text(t(lang, "teacher_menu_learn"), "lrn:topics")
+    .row();
+  addWordGameButton(kb, lang);
+  kb.row()
     .text(t(lang, "teacher_menu_students"), "t:students")
     .row()
     .text(t(lang, "menu_language"), "lang:menu")
     .text(t(lang, "teacher_menu_logout"), "logout");
+  return kb;
 }
 
 export function studentsListKeyboard(

@@ -44,8 +44,32 @@ export const config = {
   /** Anthropic key powering the /learn AI tutor. Without it, /learn is disabled. */
   anthropicApiKey: (process.env.ANTHROPIC_API_KEY || "").trim(),
 
-  /** Claude model used to teach (direct Anthropic API). */
-  claudeModel: (process.env.CLAUDE_MODEL || "claude-sonnet-4-6").trim(),
+  /**
+   * Telegram Mini App (the word game web app).
+   * - webappUrl: the HTTPS URL Telegram opens (e.g. https://bot.wellversed.live). When
+   *   set, the bot's menu button becomes an "Open" Web App button and the word-game
+   *   entry points launch the Mini App instead of the in-chat flow.
+   * - webappOrigin: the browser origin allowed to call the API (CORS). Usually the
+   *   same as webappUrl's origin.
+   * - webappApiPort: local port the in-process API server listens on (a reverse proxy
+   *   like Caddy terminates TLS and forwards api.<domain> here).
+   */
+  webappUrl: (process.env.WEBAPP_URL || "").trim(),
+  webappOrigin: (process.env.WEBAPP_ORIGIN || process.env.WEBAPP_URL || "").trim(),
+  webappApiPort: Number.parseInt(process.env.WEBAPP_API_PORT || "8081", 10),
+
+  /** Telegram user IDs that play the Mini App for free (owner/testers). Comma-separated. */
+  adminTelegramIds: (process.env.ADMIN_TELEGRAM_IDS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
+  /** Claude model powering BOTH the tutor and the word game. Haiku 4.5 — fast and
+   *  inexpensive, good enough for these structured tasks. */
+  claudeModel: (process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001").trim(),
+
+  /** Cheaper/faster model for simple checks (e.g. the word-game verification pass). */
+  claudeFastModel: (process.env.CLAUDE_FAST_MODEL || "claude-haiku-4-5-20251001").trim(),
 
   /**
    * Alternative to the direct Anthropic API: Amazon Bedrock ("Claude on AWS").
@@ -69,10 +93,13 @@ export const config = {
   awsWorkspaceId: (process.env.ANTHROPIC_AWS_WORKSPACE_ID || "").trim(),
   awsRegion: (process.env.AWS_REGION || "us-east-1").trim(),
 
-  /** Gemini models for the tutor's voice (TTS) and vocabulary images — reuse GEMINI_API. */
+  /** Gemini model for the tutor's voice (TTS) — reuses GEMINI_API. */
   geminiTtsModel: (process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts").trim(),
   geminiTtsVoice: (process.env.GEMINI_TTS_VOICE || "Kore").trim(),
-  geminiImageModel: (process.env.GEMINI_IMAGE_MODEL || "gemini-2.0-flash-preview-image-generation").trim(),
+  /** Image model for vocabulary pictures (reuses GEMINI_API). Defaults to a
+   *  Gemini flash-image model (generateContent). Set IMAGEN_IMAGE_MODEL=imagen-4…
+   *  to use Imagen via the :predict endpoint instead. media.ts auto-detects which. */
+  imagenImageModel: (process.env.IMAGEN_IMAGE_MODEL || "gemini-2.5-flash-image").trim(),
 
   /** Teacher login used inside the bot. Defaults match the website. */
   adminUsername: (process.env.ADMIN_USERNAME || "admin").trim(),
@@ -115,6 +142,9 @@ export const config = {
 
 export const hasGemini = config.geminiApiKey.length > 0;
 
+/** The word-game Mini App URL is configured (enables the Web App launch + API). */
+export const hasWebapp = config.webappUrl.length > 0;
+
 /** A direct Anthropic API key is configured. */
 export const hasAnthropic = config.anthropicApiKey.length > 0;
 
@@ -125,8 +155,9 @@ export const hasBedrock = config.bedrockApiKey.length > 0;
 export const hasClaudeAWS =
   config.awsApiKey.length > 0 && config.awsWorkspaceId.length > 0;
 
-/** The /learn AI tutor works if any Claude backend is configured. */
-export const hasTutorLLM = hasAnthropic || hasBedrock || hasClaudeAWS;
+/** The /learn AI tutor + word game run on Claude (Haiku 4.5) via whichever backend
+ *  is configured — Claude-on-AWS, Bedrock, or the direct Anthropic API. */
+export const hasTutorLLM = hasClaudeAWS || hasBedrock || hasAnthropic;
 
 /** Whether a dedicated tutor Firebase project is configured (vs. shared fallback). */
 export const hasTutorFirebase =

@@ -1,4 +1,5 @@
 import { config, hasGemini } from "../config.js";
+import { fetchWithRetry } from "./http.js";
 
 export interface VoiceEvaluation {
   transcript: string;
@@ -8,49 +9,82 @@ export interface VoiceEvaluation {
 /**
  * Plain verbatim transcription of a spoken message — used by the /learn tutor
  * so a student can answer by voice. Returns null if Gemini isn't configured or
- * the call fails (the caller then asks the student to type instead).
+ * every model fails (the caller then asks the student to resend or type).
  */
+const STT_API = "https://generativelanguage.googleapis.com/v1beta/models";
+// Try the primary, then a non-thinking fallback. Both accept audio input.
+const STT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+let workingSttModel: string | null = null;
+
+async function transcribeOnce(
+  model: string,
+  audioBase64: string,
+  mimeType: string,
+): Promise<string | null> {
+  const generationConfig: Record<string, unknown> = { temperature: 0, maxOutputTokens: 800 };
+  // gemini-2.5-* are "thinking" models: for a plain transcription they can spend
+  // the whole token budget on internal reasoning and return EMPTY text (this is the
+  // main reason valid voice notes came back as "couldn't catch that"). Turn it off.
+  if (model.includes("2.5")) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  const res = await fetchWithRetry(
+    `${STT_API}/${model}:generateContent?key=${config.geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { inline_data: { mime_type: mimeType || "audio/ogg", data: audioBase64 } },
+              {
+                text:
+                  "Transcribe this audio of an English learner speaking, exactly and verbatim. " +
+                  "Output ONLY the transcription text — no labels, no quotes, no commentary.",
+              },
+            ],
+          },
+        ],
+        generationConfig,
+      }),
+    },
+    { label: `Gemini STT (${model})`, attempts: 3, timeoutMs: 30_000 },
+  );
+  if (!res) return null;
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+  };
+  const cand = data.candidates?.[0];
+  const text = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+  if (!text) {
+    console.error(`Gemini STT (${model}) returned no text (finishReason=${cand?.finishReason ?? "none"})`);
+    return null;
+  }
+  return text;
+}
+
 export async function transcribeSpeech(
   audioBase64: string,
   mimeType: string,
 ): Promise<string | null> {
   if (!hasGemini) return null;
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { inline_data: { mime_type: mimeType || "audio/ogg", data: audioBase64 } },
-                {
-                  text:
-                    "Transcribe this audio of an English learner speaking, exactly and verbatim. " +
-                    "Output ONLY the transcription text — no labels, no quotes, no commentary.",
-                },
-              ],
-            },
-          ],
-          generationConfig: { temperature: 0, maxOutputTokens: 400 },
-        }),
-      },
-    );
-    if (!res.ok) {
-      console.error("Gemini transcribe error:", res.status, await res.text());
-      return null;
+  const candidates = [workingSttModel, ...STT_MODELS].filter(
+    (m, i, a): m is string => !!m && a.indexOf(m) === i,
+  );
+  for (const model of candidates) {
+    try {
+      const text = await transcribeOnce(model, audioBase64, mimeType);
+      if (text) {
+        if (workingSttModel !== model) {
+          workingSttModel = model;
+          console.log(`[media] STT model in use: ${model}`);
+        }
+        return text;
+      }
+    } catch (err) {
+      console.error(`STT model ${model} threw:`, err);
     }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    return text || null;
-  } catch (err) {
-    console.error("transcribeSpeech error:", err);
-    return null;
   }
+  return null; // every model failed — caller asks the student to resend or type
 }
 
 /**
@@ -76,6 +110,7 @@ Listen carefully to their recorded answer. Then provide:
 TRANSCRIPT: Write exactly what the student said (verbatim transcription).
 
 FEEDBACK: Give honest, encouraging feedback in natural everyday spoken English (not textbook English). Your feedback must:
+- FIRST judge RELEVANCE: did the answer actually respond to the prompt above? If it is off-topic, doesn't answer the question, or answers a different question, say so kindly and remind them what the prompt was asking — this matters as much as the grammar. Only call an answer good if it both fits the question AND is correct English.
 - Be truthful — never praise what wasn't good or skip real mistakes
 - Lead with what was genuinely good or natural
 - Point out any mistakes clearly but kindly (grammar, vocabulary, unnatural phrasing)
@@ -93,7 +128,7 @@ TRANSCRIPT: [verbatim transcription]
 FEEDBACK: [your feedback]`;
 
   try {
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`,
       {
         method: "POST",
@@ -110,12 +145,10 @@ FEEDBACK: [your feedback]`;
           generationConfig: { temperature: 0.65, maxOutputTokens: 800 },
         }),
       },
+      { label: "Gemini voice-eval", timeoutMs: 40_000 },
     );
 
-    if (!res.ok) {
-      console.error("Gemini API error:", res.status, await res.text());
-      return null;
-    }
+    if (!res) return null;
 
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
