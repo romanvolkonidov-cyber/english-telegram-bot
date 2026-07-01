@@ -1,12 +1,15 @@
 import { callClaude } from "../services/claude.js";
 
-/** CEFR level pairs available in the game. */
-export const GAME_LEVELS: { from: string; to: string; label: string }[] = [
-  { from: "A1", to: "A2", label: "A1 → A2" },
-  { from: "A2", to: "B1", label: "A2 → B1" },
-  { from: "B1", to: "B2", label: "B1 → B2" },
-  { from: "B2", to: "C1", label: "B2 → C1" },
-  { from: "C1", to: "C2", label: "C1 → C2" },
+/** Difficulty tiers available in the game. `from`/`to` are the real CEFR codes
+ *  the generation prompt uses to target difficulty; `nameEn`/`nameRu` are the
+ *  friendly, jargon-free names shown to the student instead of raw CEFR codes
+ *  (which mean nothing to most learners). */
+export const GAME_LEVELS: { from: string; to: string; nameEn: string; nameRu: string }[] = [
+  { from: "A1", to: "A2", nameEn: "Basic Words", nameRu: "Базовые слова" },
+  { from: "A2", to: "B1", nameEn: "Everyday Words", nameRu: "Слова на каждый день" },
+  { from: "B1", to: "B2", nameEn: "Confident Words", nameRu: "Уверенные слова" },
+  { from: "B2", to: "C1", nameEn: "Advanced Words", nameRu: "Продвинутые слова" },
+  { from: "C1", to: "C2", nameEn: "TOEFL Words", nameRu: "Слова уровня TOEFL" },
 ];
 
 export interface GameRound {
@@ -127,12 +130,13 @@ async function generateRoundOnce(
     `  "definition": "an ACCURATE, precise meaning in ${nativeLanguage} (max 8 words) — not a loose approximation",\n` +
     `  "correct": "the best CEFR ${toLevel} synonym (a word OR phrase)",\n` +
     `  "distractors": ["${toLevel} item related but NOT a synonym", "another ${toLevel} non-synonym", "a third ${toLevel} non-synonym"],\n` +
-    `  "explain": "2 short sentences in ${nativeLanguage}: (1) the PRECISE meaning of word and of correct — do NOT oversimplify (e.g. 'miserable' is 'extremely unhappy/wretched', NOT just 'sad'); (2) the real nuance — how correct differs from word (strength, register, connotation, or a typical collocation)",\n` +
+    `  "explain": "2 short sentences in ${nativeLanguage}: (1) the PRECISE meaning of word and of correct — do NOT oversimplify (e.g. 'miserable' is 'extremely unhappy/wretched', NOT just 'sad'); (2) the real, USEABLE difference — WHEN and WHY you'd pick correct over word. If it's a register difference, say concretely where each is used (e.g. 'purchase sounds more formal — used in business/writing; buy is what you'd say every day') — never just 'means the same but more formal', which teaches nothing new",\n` +
     `  "distractorExplains": { "<each distractor word>": "1 sentence in ${nativeLanguage} explaining exactly why this word does NOT fit — what it actually means and why it cannot replace word in this context" }\n` +
     `}\n\n` +
     `Rules:\n` +
     `- ACCURACY ABOVE ALL: use only well-established, dictionary-grade synonyms. If you are not fully certain that word and correct are genuinely interchangeable, pick a different, clearer pair. A careful teacher with a dictionary must agree.\n` +
     `- correct: EXACTLY ONE genuine synonym of word — interchangeable in a normal sentence with the same meaning — at CEFR ${toLevel} and clearly more advanced than word. There must be ONLY ONE defensible right answer.\n` +
+    `- NUANCE VARIETY — THIS IS THE MOST IMPORTANT RULE FOR MAKING ROUNDS FEEL FRESH: rotate across DIFFERENT kinds of upgrade from round to round, don't default to the same kind every time. Kinds of upgrade, roughly in order of preference: (a) INTENSITY — a stronger version of the same idea (happy → ecstatic, tired → exhausted, big → enormous, scared → terrified); (b) SPECIFICITY — a more precise, vivid word for the same action/thing (walk → stroll, look → glance, house → cottage); (c) CONNOTATION — same core meaning but a different shade/attitude (thin → slender, cheap → stingy); (d) TYPICAL CONTEXT — a word used in a specific situation (start → commence in formal writing, help → assist in a report). PURE REGISTER SWAPS (correct means EXACTLY the same as word in EVERY context, and the ONLY difference is formality — e.g. buy → purchase, ask → inquire) are the WEAKEST, most repetitive kind of round and teach the least — use them RARELY (no more than roughly one round in five), and only when no better, more instructive synonym genuinely exists for that word. Most rounds should teach a real difference in meaning, not just a fancier label for the same thing.\n` +
     `- distractors: 3 CHALLENGING ${toLevel} words/phrases that are plausible and tempting but are CLEARLY NOT synonyms of word (a careful teacher would mark each one wrong). Same topic/register, or look/sound similar. Never a true synonym, never equal to correct, no duplicates. CRITICAL: all four options (correct + 3 distractors) must have clearly different meanings from each other — no two of the four may be synonyms or near-synonyms of one another, so no two options on screen could be swapped for each other.\n` +
     `- word: the difficulty level is the POINT of the game. It MUST genuinely belong to CEFR ${fromLevel} — not easier. For B1/B2/C1 that means a real ${fromLevel} word, NOT a beginner A1/A2 word. A single word or a short phrase are both fine.\n` +
     `- VARIETY IS CRITICAL: choose a fresh word each round and rotate across many topics (work, emotions, nature, society, abstract ideas, science, daily life, travel, opinions). Do NOT default to the same handful of words or always to phrasal verbs — surprise the player every time.\n` +

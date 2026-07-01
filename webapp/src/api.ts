@@ -7,7 +7,8 @@ const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://lo
 export interface Level {
   from: string;
   to: string;
-  label: string;
+  nameEn: string;
+  nameRu: string;
 }
 export interface StateResp {
   name: string;

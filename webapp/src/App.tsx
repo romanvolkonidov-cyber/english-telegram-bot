@@ -321,12 +321,12 @@ export function App() {
         <Section header={T("Уровень", "Level")}>
           {state.levels.map((lv) => (
             <Cell
-              key={lv.label}
+              key={`${lv.from}-${lv.to}`}
               onClick={() => startLevel(lv)}
               after={<span className="chev">▶</span>}
               disabled={busy}
             >
-              {lv.label}
+              {T(lv.nameRu, lv.nameEn)}
             </Cell>
           ))}
         </Section>
@@ -364,7 +364,7 @@ export function App() {
           <div className="streakFlash">🔥 {streakFlash} {T("подряд!", "in a row!")}</div>
         )}
         <div className="topbar">
-          <span>{level?.label}</span>
+          <span>{level ? T(level.nameRu, level.nameEn) : ""}</span>
           <span>
             {T("Счёт", "Score")} {score.correct}/{score.total}
             {streak >= 2 ? `  🔥${streak}` : ""}
@@ -379,7 +379,7 @@ export function App() {
         </div>
 
         <Headline weight="2" className="prompt">
-          {T(`Какой синоним уровня ${round.toLevel}?`, `Which ${round.toLevel} synonym fits best?`)}
+          {T("Какое слово — лучший, более продвинутый синоним?", "Which one is the best, more advanced synonym?")}
         </Headline>
 
         <div className="options">

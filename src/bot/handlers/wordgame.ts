@@ -90,7 +90,7 @@ export async function wordGameCommand(ctx: BotContext): Promise<void> {
 export async function showLevelMenu(ctx: BotContext): Promise<void> {
   const kb = new InlineKeyboard();
   for (const lv of GAME_LEVELS) {
-    kb.text(`${lv.label}`, `wg:lv:${lv.from}:${lv.to}`).row();
+    kb.text(tr(ctx, lv.nameRu, lv.nameEn), `wg:lv:${lv.from}:${lv.to}`).row();
   }
   kb.text(tr(ctx, "🏆 Таблица лидеров", "🏆 Leaderboard"), "wg:lb").row();
   kb.text(tr(ctx, "⬅️ Меню", "⬅️ Menu"), "menu");
@@ -240,8 +240,8 @@ async function runRound(ctx: BotContext): Promise<void> {
 
     const header = tr(
       ctx,
-      `### 🔤 ${round.word}\n\n_${round.definition}_\n\n❓ Какой синоним уровня **${flow.toLevel}** подходит лучше всего?`,
-      `### 🔤 ${round.word}\n\n_${round.definition}_\n\n❓ Which **${flow.toLevel}** synonym fits best?`,
+      `### 🔤 ${round.word}\n\n_${round.definition}_\n\n❓ Какое слово — лучший, более продвинутый синоним?`,
+      `### 🔤 ${round.word}\n\n_${round.definition}_\n\n❓ Which one is the best, more advanced synonym?`,
     );
 
     cancelHints(); // the question is ready — stop the "I'm running…" pics
